@@ -1,23 +1,24 @@
-import os
-from dotenv import load_dotenv
-from openai import OpenAI
+import requests
 
-load_dotenv()
-
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+OLLAMA_EMBED_URL = "http://localhost:11434/api/embeddings"
+EMBED_MODEL = "nomic-embed-text"
 
 
-def get_embedding(text: str, model: str = "text-embedding-3-small") -> list[float]:
-    response = client.embeddings.create(
-        model=model,
-        input=text
+def get_embedding(text: str) -> list[float]:
+    response = requests.post(
+        OLLAMA_EMBED_URL,
+        json={
+            "model": EMBED_MODEL,
+            "prompt": text
+        },
+        timeout=120
     )
-    return response.data[0].embedding
+    response.raise_for_status()
+    return response.json()["embedding"]
 
 
-def get_embeddings(texts: list[str], model: str = "text-embedding-3-small") -> list[list[float]]:
-    response = client.embeddings.create(
-        model=model,
-        input=texts
-    )
-    return [item.embedding for item in response.data]
+def get_embeddings(texts: list[str]) -> list[list[float]]:
+    embeddings = []
+    for text in texts:
+        embeddings.append(get_embedding(text))
+    return embeddings

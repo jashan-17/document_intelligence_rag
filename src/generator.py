@@ -1,13 +1,10 @@
-import os
-from dotenv import load_dotenv
-from openai import OpenAI
+import requests
 
-load_dotenv()
-
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+OLLAMA_URL = "http://localhost:11434/api/generate"
+OLLAMA_MODEL = "phi3:mini"
 
 
-def generate_answer(query: str, retrieved_chunks: list[tuple[str, float]], model: str = "gpt-4.1-mini") -> str:
+def generate_answer(query: str, retrieved_chunks: list[tuple[str, float]], model: str = OLLAMA_MODEL) -> str:
     context = "\n\n".join(
         [f"[Source {i+1}]\n{chunk}" for i, (chunk, _) in enumerate(retrieved_chunks)]
     )
@@ -26,19 +23,15 @@ Question:
 Give a concise answer and cite the source numbers used.
 """
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {
-                "role": "system",
-                "content": "You answer questions only from the provided document context."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        temperature=0.2,
+    response = requests.post(
+        OLLAMA_URL,
+        json={
+            "model": model,
+            "prompt": prompt,
+            "stream": False
+        },
+        timeout=120
     )
 
-    return response.choices[0].message.content
+    response.raise_for_status()
+    return response.json()["response"]
