@@ -7,7 +7,7 @@ Document RAG is a local Retrieval-Augmented Generation project for asking questi
 The project lives in:
 
 ```text
-Document RAG/document_intelligence_rag
+Portfolio/document_intelligence_rag
 ```
 
 It allows a user to:
@@ -23,20 +23,20 @@ It allows a user to:
 ## Project Structure
 
 ```text
-Document RAG/
+document_intelligence_rag/
+├── app.py
+├── requirements.txt
 ├── README.md
-└── document_intelligence_rag/
-    ├── app.py
-    ├── requirements.txt
-    ├── .env
-    └── src/
-        ├── chunker.py
-        ├── embedder.py
-        ├── generator.py
-        ├── loader.py
-        ├── retriever.py
-        ├── utils.py
-        └── vector_store.py
+├── data/
+├── src/
+│   ├── chunker.py
+│   ├── embedder.py
+│   ├── generator.py
+│   ├── loader.py
+│   ├── retriever.py
+│   ├── utils.py
+│   └── vector_store.py
+└── venv/
 ```
 
 ## How It Works
@@ -48,7 +48,7 @@ The loader supports:
 - PDF via `PyMuPDF`
 - DOCX via `python-docx`
 
-Source: [loader.py](/mnt/c/Users/HP/Desktop/Portfolio/Document%20RAG/document_intelligence_rag/src/loader.py)
+Source: [loader.py](/mnt/c/Users/HP/Desktop/Portfolio/document_intelligence_rag/src/loader.py)
 
 ### 2. Chunking
 
@@ -57,7 +57,7 @@ Documents are split into overlapping text chunks to improve retrieval quality.
 - default chunk size: `800`
 - default overlap: `150`
 
-Source: [chunker.py](/mnt/c/Users/HP/Desktop/Portfolio/Document%20RAG/document_intelligence_rag/src/chunker.py)
+Source: [chunker.py](/mnt/c/Users/HP/Desktop/Portfolio/document_intelligence_rag/src/chunker.py)
 
 ### 3. Embeddings
 
@@ -66,13 +66,13 @@ Each chunk is embedded through a local Ollama embeddings endpoint:
 - endpoint: `http://localhost:11434/api/embeddings`
 - model: `nomic-embed-text`
 
-Source: [embedder.py](/mnt/c/Users/HP/Desktop/Portfolio/Document%20RAG/document_intelligence_rag/src/embedder.py)
+Source: [embedder.py](/mnt/c/Users/HP/Desktop/Portfolio/document_intelligence_rag/src/embedder.py)
 
 ### 4. Vector Search
 
 Embeddings are stored in an in-memory FAISS `IndexFlatL2` vector index for similarity search.
 
-Source: [vector_store.py](/mnt/c/Users/HP/Desktop/Portfolio/Document%20RAG/document_intelligence_rag/src/vector_store.py)
+Source: [vector_store.py](/mnt/c/Users/HP/Desktop/Portfolio/document_intelligence_rag/src/vector_store.py)
 
 ### 5. Answer Generation
 
@@ -83,7 +83,7 @@ Retrieved chunks are combined into a prompt and sent to a local Ollama generatio
 
 The generator instructs the model to answer only from the supplied context and cite source numbers.
 
-Source: [generator.py](/mnt/c/Users/HP/Desktop/Portfolio/Document%20RAG/document_intelligence_rag/src/generator.py)
+Source: [generator.py](/mnt/c/Users/HP/Desktop/Portfolio/document_intelligence_rag/src/generator.py)
 
 ### 6. Frontend
 
@@ -96,7 +96,7 @@ The user interface is built with Streamlit and supports:
 - grounded answer generation
 - expandable retrieved source display
 
-Source: [app.py](/mnt/c/Users/HP/Desktop/Portfolio/Document%20RAG/document_intelligence_rag/app.py)
+Source: [app.py](/mnt/c/Users/HP/Desktop/Portfolio/document_intelligence_rag/app.py)
 
 ## Requirements
 
@@ -112,7 +112,7 @@ This project depends on:
 
 There is an existing `requirements.txt` in the app folder:
 
-[requirements.txt](/mnt/c/Users/HP/Desktop/Portfolio/Document%20RAG/document_intelligence_rag/requirements.txt)
+[requirements.txt](/mnt/c/Users/HP/Desktop/Portfolio/document_intelligence_rag/requirements.txt)
 
 ## Ollama Setup
 
@@ -133,10 +133,10 @@ Then start Ollama before launching the app.
 
 ## Run the App
 
-From the project app folder:
+From the project folder:
 
 ```bash
-cd "/mnt/c/Users/HP/Desktop/Portfolio/Document RAG/document_intelligence_rag"
+cd /mnt/c/Users/HP/Desktop/Portfolio/document_intelligence_rag
 venv/Scripts/python.exe -m streamlit run app.py
 ```
 
