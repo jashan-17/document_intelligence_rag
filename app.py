@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import streamlit as st
 
 from src.loader import load_document
@@ -15,6 +16,11 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 st.set_page_config(page_title="Document Intelligence RAG Assistant", layout="wide")
 st.title("Document Intelligence RAG Assistant")
 st.caption("Upload PDF or DOCX files, then ask questions grounded in those documents.")
+
+if os.getenv("OPENAI_API_KEY"):
+    st.info("Running with OpenAI-backed embeddings and answer generation for cloud deployment.")
+else:
+    st.info("Running with local Ollama endpoints. Make sure Ollama is available at localhost:11434.")
 
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None

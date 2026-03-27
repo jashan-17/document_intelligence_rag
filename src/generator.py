@@ -1,7 +1,20 @@
-import requests
+import os
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "phi3:mini"
+import requests
+from openai import OpenAI
+
+
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "phi3:mini")
+OPENAI_CHAT_MODEL = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
+
+
+def use_openai_generation() -> bool:
+    return bool(os.getenv("OPENAI_API_KEY"))
+
+
+def get_openai_client() -> OpenAI:
+    return OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
 def generate_answer(query: str, retrieved_chunks: list[tuple[str, float]], model: str = OLLAMA_MODEL) -> str:
@@ -22,6 +35,23 @@ Question:
 
 Give a concise answer and cite the source numbers used.
 """
+
+    if use_openai_generation():
+        client = get_openai_client()
+        response = client.chat.completions.create(
+            model=OPENAI_CHAT_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You answer questions using only the supplied document context.",
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
+            ],
+        )
+        return response.choices[0].message.content or "No answer returned."
 
     response = requests.post(
         OLLAMA_URL,
