@@ -114,11 +114,6 @@ APP_CSS = """
     h1, h2, h3, h4, h5, h6, p, label, div, span {
         color: inherit;
     }
-    .page-shell {
-        display: flex;
-        flex-direction: column;
-        gap: 1rem;
-    }
     .app-title {
         font-size: 1.9rem;
         font-weight: 800;
@@ -139,20 +134,6 @@ APP_CSS = """
         padding: 1.25rem 1.3rem;
         backdrop-filter: blur(18px);
         box-shadow: var(--shadow);
-    }
-    .section-card {
-        background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: 22px;
-        padding: 1.1rem 1.2rem;
-        box-shadow: var(--shadow);
-        backdrop-filter: blur(18px);
-    }
-    .section-title {
-        font-size: 1.05rem;
-        font-weight: 700;
-        color: var(--text);
-        margin-bottom: 0.9rem;
     }
     .stats-grid {
         display: grid;
@@ -180,7 +161,7 @@ APP_CSS = """
     .upload-note {
         color: var(--muted);
         font-size: 0.92rem;
-        margin-top: -0.25rem;
+        margin-top: 0.35rem;
     }
     .files-wrap {
         display: flex;
@@ -277,6 +258,12 @@ APP_CSS = """
     .thinking-note {
         color: var(--muted);
         font-size: 0.9rem;
+    }
+    .section-heading {
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: var(--text);
+        margin: 1.2rem 0 0.85rem 0;
     }
     .stButton > button {
         background: linear-gradient(135deg, #1d4ed8 0%, #38bdf8 100%);
@@ -1189,25 +1176,24 @@ def render_stats() -> None:
     total_chunks = len(st.session_state.body_chunks)
     total_answers = len(st.session_state.answer_history)
     mode_label = "Remote LLM" if remote_llm_configured() else "Local Extractive"
-    columns = st.columns(4)
     stats = [
         ("Indexed Files", str(total_docs)),
         ("Body Chunks", str(total_chunks)),
         ("Answers This Session", str(total_answers)),
         ("Active Mode", mode_label),
     ]
-    st.markdown("<div class='stats-grid'>", unsafe_allow_html=True)
-    for label, value in stats:
-        st.markdown(
-            f"""
-            <div class="stat-card">
-                <div class="stat-label">{label}</div>
-                <div class="stat-value">{value}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    st.markdown("</div>", unsafe_allow_html=True)
+    columns = st.columns(4)
+    for column, (label, value) in zip(columns, stats):
+        with column:
+            st.markdown(
+                f"""
+                <div class="stat-card">
+                    <div class="stat-label">{label}</div>
+                    <div class="stat-value">{value}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 
 def render_sidebar() -> None:
@@ -1277,24 +1263,6 @@ def render_debug_panels() -> None:
             st.json(st.session_state.last_debug)
 
 
-def render_suggested_questions() -> None:
-    if not st.session_state.documents:
-        return
-    st.caption("Quick prompts")
-    suggestions = [
-        "Who is the author of the document?",
-        "What is one use of AI in healthcare mentioned in the document?",
-        "What are the challenges of using AI in healthcare?",
-    ]
-    columns = st.columns(len(suggestions))
-    for column, suggestion in zip(columns, suggestions):
-        with column:
-            if st.button(suggestion, use_container_width=True):
-                with st.spinner("Thinking..."):
-                    handle_new_question(suggestion)
-                st.rerun()
-
-
 def render_chat_bubble(role: str, text: str, mode: str | None = None, confidence: float | None = None, resolved_query: str | None = None, original_question: str | None = None) -> None:
     bubble_class = "user" if role == "user" else "assistant"
     label = "You" if role == "user" else "Assistant"
@@ -1330,7 +1298,6 @@ def render_chat_bubble(role: str, text: str, mode: str | None = None, confidence
 
 
 def render_history() -> None:
-    st.markdown("<div class='chat-shell'>", unsafe_allow_html=True)
     for index, item in enumerate(st.session_state.answer_history, start=1):
         render_chat_bubble(
             role="user",
@@ -1362,7 +1329,6 @@ def render_history() -> None:
         if st.session_state.debug_mode:
             with st.expander(f"Answer debug #{index}", expanded=False):
                 st.json(item["debug"])
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def register_answer_usage(answer: str, sources: list[dict[str, Any]], debug: dict[str, Any]) -> None:
@@ -1419,12 +1385,10 @@ st.set_page_config(page_title="Document Intelligence RAG Assistant", layout="wid
 st.markdown(APP_CSS, unsafe_allow_html=True)
 init_session_state()
 render_sidebar()
-st.markdown("<div class='page-shell'>", unsafe_allow_html=True)
 render_hero()
 render_stats()
 
-st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-st.markdown("<div class='section-title'>Upload Documents</div>", unsafe_allow_html=True)
+st.markdown("<div class='section-heading'>Upload Documents</div>", unsafe_allow_html=True)
 uploaded_files = st.file_uploader(
     "Upload PDF or DOCX files",
     type=["pdf", "docx"],
@@ -1449,20 +1413,15 @@ if uploaded_files:
         )
 else:
     st.markdown("<div class='upload-note'>Upload files and click <strong>Process Documents</strong> to start a new indexed session.</div>", unsafe_allow_html=True)
-st.markdown("</div>", unsafe_allow_html=True)
 
-st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-st.markdown("<div class='section-title'>Indexed Files</div>", unsafe_allow_html=True)
+st.markdown("<div class='section-heading'>Indexed Files</div>", unsafe_allow_html=True)
 if st.session_state.indexed_files:
     pills = "".join(f"<span class='file-pill'>{escape(name)}</span>" for name in st.session_state.indexed_files)
     st.markdown(f"<div class='files-wrap'>{pills}</div>", unsafe_allow_html=True)
 else:
     st.caption("No documents indexed yet.")
-st.markdown("</div>", unsafe_allow_html=True)
 
-st.markdown("<div class='section-card'>", unsafe_allow_html=True)
-st.markdown("<div class='section-title'>Chat</div>", unsafe_allow_html=True)
-render_suggested_questions()
+st.markdown("<div class='section-heading'>Chat</div>", unsafe_allow_html=True)
 
 prompt = st.chat_input("Ask about your documents...", disabled=not bool(st.session_state.documents))
 if prompt:
@@ -1474,5 +1433,3 @@ if not st.session_state.documents:
 else:
     render_history()
     render_debug_panels()
-st.markdown("</div>", unsafe_allow_html=True)
-st.markdown("</div>", unsafe_allow_html=True)
