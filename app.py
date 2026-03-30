@@ -58,6 +58,34 @@ APP_CSS = """
         background:
             radial-gradient(circle at top left, rgba(60, 130, 246, 0.12), transparent 28%),
             linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
+        color: #0f172a;
+    }
+    [data-testid="stAppViewContainer"] {
+        background:
+            radial-gradient(circle at top left, rgba(60, 130, 246, 0.12), transparent 28%),
+            linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
+    }
+    [data-testid="stHeader"] {
+        background: #1f2937;
+    }
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #3f4256 0%, #4b4e63 100%);
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    [data-testid="stSidebar"] * {
+        color: #f8fafc;
+    }
+    section[data-testid="stSidebar"] .stButton > button,
+    section[data-testid="stSidebar"] .stCheckbox label,
+    section[data-testid="stSidebar"] .stCaption {
+        color: #f8fafc !important;
+    }
+    .main .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
+    h1, h2, h3, h4, h5, h6, p, label, div, span {
+        color: inherit;
     }
     .hero-card {
         background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 60%, #38bdf8 100%);
@@ -110,6 +138,64 @@ APP_CSS = """
         background: rgba(59, 130, 246, 0.12);
         color: #1d4ed8;
         margin-right: 0.45rem;
+    }
+    .stButton > button {
+        background: #1f2937;
+        color: #ffffff;
+        border: 1px solid rgba(15, 23, 42, 0.15);
+        border-radius: 12px;
+        font-weight: 600;
+    }
+    .stButton > button:hover {
+        background: #0f172a;
+        color: #ffffff;
+        border-color: rgba(15, 23, 42, 0.25);
+    }
+    .stTextInput > div > div > input,
+    [data-testid="stChatInputTextArea"] textarea,
+    [data-testid="stFileUploaderDropzone"] {
+        background: rgba(255, 255, 255, 0.92) !important;
+        color: #0f172a !important;
+        border: 1px solid rgba(148, 163, 184, 0.35) !important;
+    }
+    [data-testid="stFileUploaderDropzone"] * {
+        color: #0f172a !important;
+    }
+    [data-testid="stFileUploaderDropzone"] button {
+        background: #1f2937 !important;
+        color: #ffffff !important;
+    }
+    [data-testid="stChatInput"] {
+        background: transparent;
+    }
+    [data-testid="stChatInput"] textarea {
+        background: rgba(255, 255, 255, 0.96) !important;
+        color: #0f172a !important;
+    }
+    [data-testid="stInfo"],
+    [data-testid="stSuccess"],
+    [data-testid="stWarning"],
+    [data-testid="stError"] {
+        background: rgba(255, 255, 255, 0.84);
+        border: 1px solid rgba(148, 163, 184, 0.28);
+        color: #0f172a;
+    }
+    [data-testid="stInfo"] *,
+    [data-testid="stSuccess"] *,
+    [data-testid="stWarning"] *,
+    [data-testid="stError"] * {
+        color: #0f172a !important;
+    }
+    [data-testid="stMarkdownContainer"] p {
+        color: #0f172a;
+    }
+    .stCaption {
+        color: #475569 !important;
+    }
+    [data-testid="stExpander"] {
+        background: rgba(255, 255, 255, 0.86);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 14px;
     }
 </style>
 """
