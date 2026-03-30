@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from html import escape
 import os
 import re
 from pathlib import Path
@@ -63,40 +64,39 @@ KNOWN_CHALLENGES = [
 APP_CSS = """
 <style>
     :root {
-        --canvas: #f4efe7;
-        --canvas-accent: #ebe3d6;
-        --surface: rgba(255, 252, 247, 0.96);
-        --surface-strong: #fffdf9;
-        --text: #1f2937;
-        --muted: #6b7280;
-        --sidebar: #1f2937;
-        --sidebar-soft: #374151;
-        --accent: #c26d3c;
-        --accent-deep: #8d4e2c;
-        --hero-start: #1f2937;
-        --hero-end: #9a3412;
-        --border: rgba(31, 41, 55, 0.08);
-        --shadow: 0 18px 50px rgba(68, 47, 27, 0.10);
+        --bg: #0f172a;
+        --bg-soft: #111c33;
+        --panel: rgba(30, 41, 59, 0.92);
+        --panel-strong: #1e293b;
+        --panel-soft: rgba(51, 65, 85, 0.72);
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --accent: #38bdf8;
+        --accent-strong: #2563eb;
+        --border: rgba(148, 163, 184, 0.18);
+        --shadow: 0 18px 60px rgba(2, 6, 23, 0.32);
+        --user-bubble: linear-gradient(135deg, #2563eb 0%, #38bdf8 100%);
+        --assistant-bubble: rgba(30, 41, 59, 0.96);
     }
     .stApp {
         background:
-            radial-gradient(circle at top left, rgba(194, 109, 60, 0.16), transparent 24%),
-            radial-gradient(circle at bottom right, rgba(234, 179, 8, 0.10), transparent 20%),
-            linear-gradient(180deg, var(--canvas) 0%, #f8f5ef 100%);
+            radial-gradient(circle at top center, rgba(56, 189, 248, 0.12), transparent 24%),
+            radial-gradient(circle at bottom left, rgba(37, 99, 235, 0.10), transparent 20%),
+            linear-gradient(180deg, #0b1220 0%, var(--bg) 100%);
         color: var(--text);
     }
     [data-testid="stAppViewContainer"] {
         background:
-            radial-gradient(circle at top left, rgba(194, 109, 60, 0.16), transparent 24%),
-            radial-gradient(circle at bottom right, rgba(234, 179, 8, 0.10), transparent 20%),
-            linear-gradient(180deg, var(--canvas) 0%, #f8f5ef 100%);
+            radial-gradient(circle at top center, rgba(56, 189, 248, 0.12), transparent 24%),
+            radial-gradient(circle at bottom left, rgba(37, 99, 235, 0.10), transparent 20%),
+            linear-gradient(180deg, #0b1220 0%, var(--bg) 100%);
     }
     [data-testid="stHeader"] {
-        background: #111827;
+        background: rgba(11, 18, 32, 0.86);
     }
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #1f2937 0%, #374151 100%);
-        border-right: 1px solid rgba(255, 255, 255, 0.06);
+        background: linear-gradient(180deg, #0f172a 0%, #172036 100%);
+        border-right: 1px solid rgba(148, 163, 184, 0.10);
     }
     [data-testid="stSidebar"] * {
         color: #f8fafc;
@@ -107,108 +107,226 @@ APP_CSS = """
         color: #f8fafc !important;
     }
     .main .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-        max-width: 1280px;
+        padding-top: 1.5rem;
+        padding-bottom: 7rem;
+        max-width: 920px;
     }
     h1, h2, h3, h4, h5, h6, p, label, div, span {
         color: inherit;
     }
-    .hero-card {
-        background:
-            linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.0)),
-            linear-gradient(135deg, var(--hero-start) 0%, #7c2d12 62%, var(--hero-end) 100%);
-        padding: 1.5rem 1.75rem;
-        border-radius: 24px;
-        color: white;
-        box-shadow: 0 26px 60px rgba(31, 41, 55, 0.18);
-        margin-bottom: 1.25rem;
+    .page-shell {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
     }
-    .hero-card h1 {
-        color: white;
-        margin: 0 0 0.35rem 0;
-        font-size: 2.1rem;
-    }
-    .hero-card p {
+    .app-title {
+        font-size: 1.9rem;
+        font-weight: 800;
+        line-height: 1.2;
+        color: var(--text);
         margin: 0;
-        color: rgba(255, 247, 237, 0.92);
-        font-size: 1rem;
-        max-width: 52rem;
+    }
+    .app-subtitle {
+        font-size: 0.98rem;
         line-height: 1.7;
+        color: var(--muted);
+        margin: 0.45rem 0 0 0;
+    }
+    .top-shell {
+        background: rgba(15, 23, 42, 0.55);
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        border-radius: 24px;
+        padding: 1.25rem 1.3rem;
+        backdrop-filter: blur(18px);
+        box-shadow: var(--shadow);
+    }
+    .section-card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        padding: 1.1rem 1.2rem;
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(18px);
+    }
+    .section-title {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: var(--text);
+        margin-bottom: 0.9rem;
+    }
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.85rem;
     }
     .stat-card {
-        background: var(--surface);
-        border: 1px solid var(--border);
+        background: rgba(15, 23, 42, 0.62);
+        border: 1px solid rgba(148, 163, 184, 0.12);
         border-radius: 18px;
-        padding: 1rem 1.1rem;
-        box-shadow: var(--shadow);
-        backdrop-filter: blur(8px);
+        padding: 0.95rem 1rem;
     }
     .stat-label {
-        font-size: 0.85rem;
+        font-size: 0.76rem;
         color: var(--muted);
-        margin-bottom: 0.15rem;
+        margin-bottom: 0.2rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
     }
     .stat-value {
-        font-size: 1.65rem;
+        font-size: 1.35rem;
         font-weight: 700;
         color: var(--text);
     }
-    .mode-pill {
-        display: inline-block;
-        padding: 0.38rem 0.75rem;
+    .upload-note {
+        color: var(--muted);
+        font-size: 0.92rem;
+        margin-top: -0.25rem;
+    }
+    .files-wrap {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+    }
+    .file-pill {
+        padding: 0.42rem 0.75rem;
         border-radius: 999px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        background: rgba(194, 109, 60, 0.14);
-        color: #9a3412;
+        background: rgba(56, 189, 248, 0.12);
+        border: 1px solid rgba(56, 189, 248, 0.18);
+        color: var(--text);
+        font-size: 0.88rem;
+    }
+    .mode-pill, .confidence-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.26rem 0.62rem;
+        border-radius: 999px;
+        font-size: 0.76rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
         margin-right: 0.45rem;
     }
-    .stSubheader, h2 {
-        color: var(--text) !important;
+    .mode-pill {
+        background: rgba(56, 189, 248, 0.14);
+        color: #7dd3fc;
+        border: 1px solid rgba(56, 189, 248, 0.18);
+    }
+    .confidence-pill {
+        background: rgba(148, 163, 184, 0.16);
+        color: var(--text);
+        border: 1px solid rgba(148, 163, 184, 0.15);
+    }
+    .chat-shell {
+        display: flex;
+        flex-direction: column;
+        gap: 0.9rem;
+    }
+    .message-wrap {
+        display: flex;
+        width: 100%;
+    }
+    .message-wrap.user {
+        justify-content: flex-end;
+    }
+    .message-wrap.assistant {
+        justify-content: flex-start;
+    }
+    .bubble {
+        max-width: 78%;
+        padding: 0.9rem 1rem;
+        border-radius: 22px;
+        box-shadow: 0 12px 34px rgba(2, 6, 23, 0.18);
+        font-size: 0.98rem;
+        line-height: 1.65;
+        white-space: pre-wrap;
+    }
+    .bubble.user {
+        background: var(--user-bubble);
+        color: #eff6ff;
+        border-bottom-right-radius: 8px;
+    }
+    .bubble.assistant {
+        background: var(--assistant-bubble);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+        color: var(--text);
+        border-bottom-left-radius: 8px;
+    }
+    .bubble-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        margin-bottom: 0.6rem;
+    }
+    .message-label {
+        font-size: 0.76rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        margin-bottom: 0.35rem;
+        font-weight: 700;
+    }
+    .resolved-text {
+        color: #7dd3fc;
+        font-size: 0.82rem;
+        margin-top: 0.4rem;
+    }
+    .source-caption {
+        color: var(--muted);
+        font-size: 0.8rem;
+        margin-top: 0.3rem;
+    }
+    .thinking-note {
+        color: var(--muted);
+        font-size: 0.9rem;
     }
     .stButton > button {
-        background: #1f2937;
+        background: linear-gradient(135deg, #1d4ed8 0%, #38bdf8 100%);
         color: #ffffff;
-        border: 1px solid rgba(255, 255, 255, 0.04);
-        border-radius: 14px;
+        border: 1px solid rgba(56, 189, 248, 0.25);
+        border-radius: 16px;
         font-weight: 600;
-        box-shadow: 0 8px 20px rgba(31, 41, 55, 0.12);
+        box-shadow: 0 12px 30px rgba(37, 99, 235, 0.22);
     }
     .stButton > button:hover {
-        background: #111827;
+        background: linear-gradient(135deg, #2563eb 0%, #0ea5e9 100%);
         color: #ffffff;
-        border-color: rgba(255, 255, 255, 0.06);
+        border-color: rgba(125, 211, 252, 0.32);
     }
     .stTextInput > div > div > input,
     [data-testid="stChatInputTextArea"] textarea,
     [data-testid="stFileUploaderDropzone"] {
-        background: var(--surface-strong) !important;
+        background: rgba(15, 23, 42, 0.72) !important;
         color: var(--text) !important;
-        border: 1px solid rgba(194, 109, 60, 0.18) !important;
-        border-radius: 16px !important;
+        border: 1px solid rgba(148, 163, 184, 0.14) !important;
+        border-radius: 18px !important;
         box-shadow: var(--shadow);
     }
     [data-testid="stFileUploaderDropzone"] * {
         color: var(--text) !important;
     }
     [data-testid="stFileUploaderDropzone"] button {
-        background: #1f2937 !important;
+        background: linear-gradient(135deg, #1d4ed8 0%, #38bdf8 100%) !important;
         color: #ffffff !important;
     }
     [data-testid="stChatInput"] {
         background: transparent;
     }
+    [data-testid="stBottomBlockContainer"] {
+        background: rgba(11, 18, 32, 0.88);
+        border-top: 1px solid rgba(148, 163, 184, 0.12);
+        backdrop-filter: blur(18px);
+    }
     [data-testid="stChatInput"] textarea {
-        background: rgba(255, 253, 249, 0.98) !important;
+        background: rgba(15, 23, 42, 0.94) !important;
         color: var(--text) !important;
+        border-radius: 20px !important;
+        box-shadow: 0 14px 40px rgba(2, 6, 23, 0.28) !important;
     }
     [data-testid="stInfo"],
     [data-testid="stSuccess"],
     [data-testid="stWarning"],
     [data-testid="stError"] {
-        background: rgba(255, 249, 240, 0.9);
-        border: 1px solid rgba(194, 109, 60, 0.16);
+        background: rgba(30, 41, 59, 0.82);
+        border: 1px solid rgba(148, 163, 184, 0.12);
         color: var(--text);
         border-radius: 16px;
     }
@@ -225,22 +343,28 @@ APP_CSS = """
         color: var(--muted) !important;
     }
     [data-testid="stExpander"] {
-        background: rgba(255, 251, 245, 0.92);
-        border: 1px solid rgba(194, 109, 60, 0.14);
-        border-radius: 14px;
-        box-shadow: 0 8px 24px rgba(68, 47, 27, 0.08);
+        background: rgba(15, 23, 42, 0.72);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+        border-radius: 16px;
+        box-shadow: 0 8px 24px rgba(2, 6, 23, 0.22);
     }
     [data-testid="stFileUploaderFile"] {
-        background: rgba(255, 250, 244, 0.9);
+        background: rgba(15, 23, 42, 0.72);
         border-radius: 14px;
     }
-    [data-testid="stChatMessage"] {
-        background: rgba(255, 252, 247, 0.85);
-        border: 1px solid rgba(194, 109, 60, 0.10);
-        border-radius: 18px;
-        padding: 0.5rem 0.75rem;
-        box-shadow: 0 10px 28px rgba(68, 47, 27, 0.06);
-        margin-bottom: 0.6rem;
+    [data-testid="stExpander"] details summary p {
+        font-size: 0.88rem !important;
+    }
+    [data-testid="stSpinner"] {
+        color: #7dd3fc !important;
+    }
+    @media (max-width: 900px) {
+        .stats-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .bubble {
+            max-width: 100%;
+        }
     }
 </style>
 """
@@ -1048,11 +1172,11 @@ def process_uploaded_documents(uploaded_files: list[Any]) -> None:
 def render_hero() -> None:
     st.markdown(
         """
-        <div class="hero-card">
-            <h1>Document Intelligence RAG Assistant</h1>
-            <p>
-                Upload PDF or DOCX files once, keep them indexed in session, and ask grounded
-                follow-up questions with metadata-aware QA, body-only retrieval, and guarded local fallback.
+        <div class="top-shell">
+            <div class="app-title">Document Intelligence RAG Assistant</div>
+            <p class="app-subtitle">
+                Upload your files, index them once, and chat with your documents in a grounded,
+                source-aware workflow.
             </p>
         </div>
         """,
@@ -1072,17 +1196,18 @@ def render_stats() -> None:
         ("Answers This Session", str(total_answers)),
         ("Active Mode", mode_label),
     ]
-    for column, (label, value) in zip(columns, stats):
-        with column:
-            st.markdown(
-                f"""
-                <div class="stat-card">
-                    <div class="stat-label">{label}</div>
-                    <div class="stat-value">{value}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    st.markdown("<div class='stats-grid'>", unsafe_allow_html=True)
+    for label, value in stats:
+        st.markdown(
+            f"""
+            <div class="stat-card">
+                <div class="stat-label">{label}</div>
+                <div class="stat-value">{value}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_sidebar() -> None:
@@ -1165,38 +1290,79 @@ def render_suggested_questions() -> None:
     for column, suggestion in zip(columns, suggestions):
         with column:
             if st.button(suggestion, use_container_width=True):
-                handle_new_question(suggestion)
+                with st.spinner("Thinking..."):
+                    handle_new_question(suggestion)
                 st.rerun()
 
 
+def render_chat_bubble(role: str, text: str, mode: str | None = None, confidence: float | None = None, resolved_query: str | None = None, original_question: str | None = None) -> None:
+    bubble_class = "user" if role == "user" else "assistant"
+    label = "You" if role == "user" else "Assistant"
+
+    badge_html = ""
+    if role == "assistant" and mode is not None and confidence is not None:
+        badge_html = (
+            "<div class='bubble-meta'>"
+            f"<span class='mode-pill'>{escape(mode)}</span>"
+            f"<span class='confidence-pill'>Confidence {confidence:.2f}</span>"
+            "</div>"
+        )
+
+    resolved_html = ""
+    if role == "user" and resolved_query and original_question and resolved_query != original_question:
+        resolved_html = f"<div class='resolved-text'>Resolved as: {escape(resolved_query)}</div>"
+
+    st.markdown(
+        f"""
+        <div class="message-wrap {bubble_class}">
+            <div class="bubble-shell">
+                <div class="message-label">{label}</div>
+                <div class="bubble {bubble_class}">
+                    {badge_html}
+                    {escape(text)}
+                </div>
+                {resolved_html}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def render_history() -> None:
+    st.markdown("<div class='chat-shell'>", unsafe_allow_html=True)
     for index, item in enumerate(st.session_state.answer_history, start=1):
-        with st.chat_message("user"):
-            st.write(item["question"])
-            if item.get("resolved_query") and item["resolved_query"] != item["question"]:
-                st.caption(f"Resolved as: {item['resolved_query']}")
+        render_chat_bubble(
+            role="user",
+            text=item["question"],
+            resolved_query=item.get("resolved_query"),
+            original_question=item["question"],
+        )
+        mode = item["debug"].get("mode", item["debug"].get("question_type", "unknown"))
+        confidence = item.get("confidence", 0.0)
+        render_chat_bubble(
+            role="assistant",
+            text=item["answer"],
+            mode=mode,
+            confidence=confidence,
+        )
 
-        with st.chat_message("assistant"):
-            st.write(item["answer"])
-            confidence = item.get("confidence", 0.0)
-            mode = item["debug"].get("mode", item["debug"].get("question_type", "unknown"))
-            st.caption(f"Mode: {mode} | Confidence: {confidence:.2f}")
+        with st.expander("Sources", expanded=False):
+            if not item["sources"]:
+                st.caption("No sources shown for metadata-only answer.")
+            else:
+                for source_index, source in enumerate(item["sources"], start=1):
+                    st.markdown(
+                        f"**Source {source_index}** | `{source['doc_name']}` | "
+                        f"similarity={source['similarity']}, overlap={source['overlap']}, "
+                        f"combined={source['combined_score']}"
+                    )
+                    st.caption(source["text"])
 
-            with st.expander("Sources", expanded=False):
-                if not item["sources"]:
-                    st.write("No sources shown for metadata-only answer.")
-                else:
-                    for source_index, source in enumerate(item["sources"], start=1):
-                        st.markdown(
-                            f"**Source {source_index}** | `{source['doc_name']}` | "
-                            f"similarity={source['similarity']}, overlap={source['overlap']}, "
-                            f"combined={source['combined_score']}"
-                        )
-                        st.write(source["text"])
-
-            if st.session_state.debug_mode:
-                with st.expander(f"Answer debug #{index}", expanded=False):
-                    st.json(item["debug"])
+        if st.session_state.debug_mode:
+            with st.expander(f"Answer debug #{index}", expanded=False):
+                st.json(item["debug"])
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def register_answer_usage(answer: str, sources: list[dict[str, Any]], debug: dict[str, Any]) -> None:
@@ -1253,46 +1419,60 @@ st.set_page_config(page_title="Document Intelligence RAG Assistant", layout="wid
 st.markdown(APP_CSS, unsafe_allow_html=True)
 init_session_state()
 render_sidebar()
+st.markdown("<div class='page-shell'>", unsafe_allow_html=True)
 render_hero()
 render_stats()
 
-upload_col, info_col = st.columns([1.2, 1])
-with upload_col:
-    uploaded_files = st.file_uploader(
-        "Upload PDF or DOCX files",
-        type=["pdf", "docx"],
-        accept_multiple_files=True,
+st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+st.markdown("<div class='section-title'>Upload Documents</div>", unsafe_allow_html=True)
+uploaded_files = st.file_uploader(
+    "Upload PDF or DOCX files",
+    type=["pdf", "docx"],
+    accept_multiple_files=True,
+    label_visibility="collapsed",
+)
+if remote_llm_configured():
+    llm_settings = get_llm_settings()
+    st.caption(
+        f"Remote runtime active via `{llm_settings['display_host']}` using `{llm_settings['model']}`."
     )
-with info_col:
-    if remote_llm_configured():
-        llm_settings = get_llm_settings()
-        st.info(
-            "Remote answer generation is enabled. "
-            f"Requests will be sent to `{llm_settings['display_host']}` using `{llm_settings['model']}`."
-        )
-    else:
-        st.info("Local production mode is enabled with metadata-aware QA and guarded body-content retrieval.")
+else:
+    st.caption("Local runtime active. Metadata routing, body retrieval, and guarded local synthesis are enabled.")
 
 if uploaded_files:
     if st.button("Process Documents", use_container_width=True):
-        with st.spinner("Extracting metadata, separating body content, and building the retrieval index..."):
+        with st.spinner("Processing documents..."):
             process_uploaded_documents(uploaded_files)
         st.success(
             f"Indexed {len(st.session_state.body_chunks)} body chunks from "
             f"{len(st.session_state.documents)} file(s)."
         )
 else:
-    st.caption("Upload files and click `Process Documents` to start a new indexed session.")
+    st.markdown("<div class='upload-note'>Upload files and click <strong>Process Documents</strong> to start a new indexed session.</div>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
-st.subheader("Ask a Question")
+st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+st.markdown("<div class='section-title'>Indexed Files</div>", unsafe_allow_html=True)
+if st.session_state.indexed_files:
+    pills = "".join(f"<span class='file-pill'>{escape(name)}</span>" for name in st.session_state.indexed_files)
+    st.markdown(f"<div class='files-wrap'>{pills}</div>", unsafe_allow_html=True)
+else:
+    st.caption("No documents indexed yet.")
+st.markdown("</div>", unsafe_allow_html=True)
+
+st.markdown("<div class='section-card'>", unsafe_allow_html=True)
+st.markdown("<div class='section-title'>Chat</div>", unsafe_allow_html=True)
 render_suggested_questions()
 
-prompt = st.chat_input("Ask about the indexed documents...", disabled=not bool(st.session_state.documents))
+prompt = st.chat_input("Ask about your documents...", disabled=not bool(st.session_state.documents))
 if prompt:
-    handle_new_question(prompt)
+    with st.spinner("Thinking..."):
+        handle_new_question(prompt)
 
 if not st.session_state.documents:
-    st.caption("Upload and process documents to start asking questions.")
+    st.markdown("<div class='thinking-note'>Upload and process documents to start asking questions.</div>", unsafe_allow_html=True)
 else:
     render_history()
     render_debug_panels()
+st.markdown("</div>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
