@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-from html import escape
 import os
 import re
 from pathlib import Path
@@ -20,6 +19,10 @@ UPLOAD_DIR = Path("data/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 REFUSAL_MESSAGE = "I could not find that in the uploaded documents."
+SOFT_GUIDANCE_MESSAGE = (
+    "I couldn't find a direct answer from the uploaded documents. "
+    "Try asking something more specific."
+)
 
 METADATA_LABELS = {
     "title": ["title", "document title", "name of the document"],
@@ -43,315 +46,74 @@ FOLLOW_UP_PHRASES = [
     "more",
 ]
 
-KNOWN_USE_CASES = [
-    "medical imaging",
-    "predictive analytics",
-    "drug discovery",
-    "patient monitoring",
-    "clinical decision support",
-    "predict patient admissions",
-]
-
-KNOWN_CHALLENGES = [
-    "privacy concerns",
-    "incorrect diagnoses",
-    "data privacy",
-    "bias",
-    "security concerns",
-    "limited training data",
+OUT_OF_SCOPE_PHRASES = [
+    "capital of",
+    "current president",
+    "president of",
+    "weather today",
+    "weather",
+    "news today",
+    "stock price",
+    "population of",
 ]
 
 APP_CSS = """
 <style>
-    :root {
-        --bg: #0f172a;
-        --bg-soft: #111c33;
-        --panel: rgba(30, 41, 59, 0.92);
-        --panel-strong: #1e293b;
-        --panel-soft: rgba(51, 65, 85, 0.72);
-        --text: #e2e8f0;
-        --muted: #94a3b8;
-        --accent: #38bdf8;
-        --accent-strong: #2563eb;
-        --border: rgba(148, 163, 184, 0.18);
-        --shadow: 0 18px 60px rgba(2, 6, 23, 0.32);
-        --user-bubble: linear-gradient(135deg, #2563eb 0%, #38bdf8 100%);
-        --assistant-bubble: rgba(30, 41, 59, 0.96);
-    }
     .stApp {
-        background:
-            radial-gradient(circle at top center, rgba(56, 189, 248, 0.12), transparent 24%),
-            radial-gradient(circle at bottom left, rgba(37, 99, 235, 0.10), transparent 20%),
-            linear-gradient(180deg, #0b1220 0%, var(--bg) 100%);
-        color: var(--text);
+        background: #0f172a;
+        color: #e5e7eb;
     }
     [data-testid="stAppViewContainer"] {
-        background:
-            radial-gradient(circle at top center, rgba(56, 189, 248, 0.12), transparent 24%),
-            radial-gradient(circle at bottom left, rgba(37, 99, 235, 0.10), transparent 20%),
-            linear-gradient(180deg, #0b1220 0%, var(--bg) 100%);
+        background: #0f172a;
     }
     [data-testid="stHeader"] {
-        background: rgba(11, 18, 32, 0.86);
+        background: #0f172a;
     }
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0f172a 0%, #172036 100%);
-        border-right: 1px solid rgba(148, 163, 184, 0.10);
+        background: #111827;
     }
     [data-testid="stSidebar"] * {
-        color: #f8fafc;
-    }
-    section[data-testid="stSidebar"] .stButton > button,
-    section[data-testid="stSidebar"] .stCheckbox label,
-    section[data-testid="stSidebar"] .stCaption {
-        color: #f8fafc !important;
+        color: #e5e7eb;
     }
     .main .block-container {
         padding-top: 1.5rem;
-        padding-bottom: 7rem;
-        max-width: 920px;
-    }
-    h1, h2, h3, h4, h5, h6, p, label, div, span {
-        color: inherit;
-    }
-    .app-title {
-        font-size: 1.9rem;
-        font-weight: 800;
-        line-height: 1.2;
-        color: var(--text);
-        margin: 0;
-    }
-    .app-subtitle {
-        font-size: 0.98rem;
-        line-height: 1.7;
-        color: var(--muted);
-        margin: 0.45rem 0 0 0;
-    }
-    .top-shell {
-        background: rgba(15, 23, 42, 0.55);
-        border: 1px solid rgba(148, 163, 184, 0.14);
-        border-radius: 24px;
-        padding: 1.25rem 1.3rem;
-        backdrop-filter: blur(18px);
-        box-shadow: var(--shadow);
-    }
-    .stats-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 0.85rem;
-    }
-    .stat-card {
-        background: rgba(15, 23, 42, 0.62);
-        border: 1px solid rgba(148, 163, 184, 0.12);
-        border-radius: 18px;
-        padding: 0.95rem 1rem;
-    }
-    .stat-label {
-        font-size: 0.76rem;
-        color: var(--muted);
-        margin-bottom: 0.2rem;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-    }
-    .stat-value {
-        font-size: 1.35rem;
-        font-weight: 700;
-        color: var(--text);
-    }
-    .upload-note {
-        color: var(--muted);
-        font-size: 0.92rem;
-        margin-top: 0.35rem;
-    }
-    .files-wrap {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.55rem;
-    }
-    .file-pill {
-        padding: 0.42rem 0.75rem;
-        border-radius: 999px;
-        background: rgba(56, 189, 248, 0.12);
-        border: 1px solid rgba(56, 189, 248, 0.18);
-        color: var(--text);
-        font-size: 0.88rem;
-    }
-    .mode-pill, .confidence-pill {
-        display: inline-flex;
-        align-items: center;
-        padding: 0.26rem 0.62rem;
-        border-radius: 999px;
-        font-size: 0.76rem;
-        font-weight: 700;
-        letter-spacing: 0.01em;
-        margin-right: 0.45rem;
-    }
-    .mode-pill {
-        background: rgba(56, 189, 248, 0.14);
-        color: #7dd3fc;
-        border: 1px solid rgba(56, 189, 248, 0.18);
-    }
-    .confidence-pill {
-        background: rgba(148, 163, 184, 0.16);
-        color: var(--text);
-        border: 1px solid rgba(148, 163, 184, 0.15);
-    }
-    .chat-shell {
-        display: flex;
-        flex-direction: column;
-        gap: 0.9rem;
-    }
-    .message-wrap {
-        display: flex;
-        width: 100%;
-    }
-    .message-wrap.user {
-        justify-content: flex-end;
-    }
-    .message-wrap.assistant {
-        justify-content: flex-start;
-    }
-    .bubble {
-        max-width: 78%;
-        padding: 0.9rem 1rem;
-        border-radius: 22px;
-        box-shadow: 0 12px 34px rgba(2, 6, 23, 0.18);
-        font-size: 0.98rem;
-        line-height: 1.65;
-        white-space: pre-wrap;
-    }
-    .bubble.user {
-        background: var(--user-bubble);
-        color: #eff6ff;
-        border-bottom-right-radius: 8px;
-    }
-    .bubble.assistant {
-        background: var(--assistant-bubble);
-        border: 1px solid rgba(148, 163, 184, 0.12);
-        color: var(--text);
-        border-bottom-left-radius: 8px;
-    }
-    .bubble-meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.45rem;
-        margin-bottom: 0.6rem;
-    }
-    .message-label {
-        font-size: 0.76rem;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: var(--muted);
-        margin-bottom: 0.35rem;
-        font-weight: 700;
-    }
-    .resolved-text {
-        color: #7dd3fc;
-        font-size: 0.82rem;
-        margin-top: 0.4rem;
-    }
-    .source-caption {
-        color: var(--muted);
-        font-size: 0.8rem;
-        margin-top: 0.3rem;
+        padding-bottom: 6rem;
+        max-width: 960px;
     }
     .thinking-note {
-        color: var(--muted);
+        color: #94a3b8;
         font-size: 0.9rem;
     }
-    .section-heading {
-        font-size: 1.2rem;
-        font-weight: 700;
-        color: var(--text);
-        margin: 1.2rem 0 0.85rem 0;
-    }
     .stButton > button {
-        background: linear-gradient(135deg, #1d4ed8 0%, #38bdf8 100%);
+        background: #2563eb;
         color: #ffffff;
-        border: 1px solid rgba(56, 189, 248, 0.25);
-        border-radius: 16px;
+        border: 1px solid #2563eb;
+        border-radius: 12px;
         font-weight: 600;
-        box-shadow: 0 12px 30px rgba(37, 99, 235, 0.22);
     }
     .stButton > button:hover {
-        background: linear-gradient(135deg, #2563eb 0%, #0ea5e9 100%);
-        color: #ffffff;
-        border-color: rgba(125, 211, 252, 0.32);
+        background: #1d4ed8;
+        border-color: #1d4ed8;
     }
     .stTextInput > div > div > input,
     [data-testid="stChatInputTextArea"] textarea,
     [data-testid="stFileUploaderDropzone"] {
-        background: rgba(15, 23, 42, 0.72) !important;
-        color: var(--text) !important;
-        border: 1px solid rgba(148, 163, 184, 0.14) !important;
-        border-radius: 18px !important;
-        box-shadow: var(--shadow);
-    }
-    [data-testid="stFileUploaderDropzone"] * {
-        color: var(--text) !important;
-    }
-    [data-testid="stFileUploaderDropzone"] button {
-        background: linear-gradient(135deg, #1d4ed8 0%, #38bdf8 100%) !important;
-        color: #ffffff !important;
-    }
-    [data-testid="stChatInput"] {
-        background: transparent;
+        border-radius: 12px !important;
     }
     [data-testid="stBottomBlockContainer"] {
-        background: rgba(11, 18, 32, 0.88);
-        border-top: 1px solid rgba(148, 163, 184, 0.12);
-        backdrop-filter: blur(18px);
+        background: rgba(15, 23, 42, 0.96);
     }
     [data-testid="stChatInput"] textarea {
-        background: rgba(15, 23, 42, 0.94) !important;
-        color: var(--text) !important;
-        border-radius: 20px !important;
-        box-shadow: 0 14px 40px rgba(2, 6, 23, 0.28) !important;
+        border-radius: 14px !important;
     }
-    [data-testid="stInfo"],
-    [data-testid="stSuccess"],
-    [data-testid="stWarning"],
-    [data-testid="stError"] {
-        background: rgba(30, 41, 59, 0.82);
-        border: 1px solid rgba(148, 163, 184, 0.12);
-        color: var(--text);
-        border-radius: 16px;
-    }
-    [data-testid="stInfo"] *,
-    [data-testid="stSuccess"] *,
-    [data-testid="stWarning"] *,
-    [data-testid="stError"] * {
-        color: var(--text) !important;
-    }
-    [data-testid="stMarkdownContainer"] p {
-        color: var(--text);
+    [data-testid="stMarkdownContainer"] p,
+    [data-testid="stMarkdownContainer"] li,
+    [data-testid="stMarkdownContainer"] strong,
+    h1, h2, h3, h4, h5, h6, label {
+        color: #e5e7eb;
     }
     .stCaption {
-        color: var(--muted) !important;
-    }
-    [data-testid="stExpander"] {
-        background: rgba(15, 23, 42, 0.72);
-        border: 1px solid rgba(148, 163, 184, 0.12);
-        border-radius: 16px;
-        box-shadow: 0 8px 24px rgba(2, 6, 23, 0.22);
-    }
-    [data-testid="stFileUploaderFile"] {
-        background: rgba(15, 23, 42, 0.72);
-        border-radius: 14px;
-    }
-    [data-testid="stExpander"] details summary p {
-        font-size: 0.88rem !important;
-    }
-    [data-testid="stSpinner"] {
-        color: #7dd3fc !important;
-    }
-    @media (max-width: 900px) {
-        .stats-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-        .bubble {
-            max-width: 100%;
-        }
+        color: #94a3b8 !important;
     }
 </style>
 """
@@ -379,6 +141,7 @@ def init_session_state() -> None:
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+    sanitize_history_state()
 
 
 def clear_chat() -> None:
@@ -440,6 +203,33 @@ def clean_answer_text(text: str) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     text = re.sub(r"\s+([,.;:])", r"\1", text)
     return text
+
+
+def strip_html_artifacts(text: str) -> str:
+    if not text:
+        return text
+    cleaned = re.sub(r"</?div[^>]*>", " ", text, flags=re.IGNORECASE)
+    cleaned = re.sub(r"</?span[^>]*>", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"</?p[^>]*>", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def sanitize_history_state() -> None:
+    cleaned_history = []
+    for item in st.session_state.answer_history:
+        cleaned_item = dict(item)
+        cleaned_item["question"] = strip_html_artifacts(cleaned_item.get("question", ""))
+        cleaned_item["answer"] = strip_html_artifacts(cleaned_item.get("answer", ""))
+        cleaned_item["resolved_query"] = strip_html_artifacts(cleaned_item.get("resolved_query", ""))
+        cleaned_history.append(cleaned_item)
+    st.session_state.answer_history = cleaned_history
+    st.session_state.current_question = strip_html_artifacts(st.session_state.current_question)
+    st.session_state.previous_answers = [
+        normalize_for_dedupe(strip_html_artifacts(answer))
+        for answer in st.session_state.previous_answers
+        if strip_html_artifacts(answer)
+    ]
 
 
 def extract_text_from_file(file_path: str) -> str:
@@ -565,8 +355,8 @@ def fingerprint_uploaded_files(uploaded_files: list[Any]) -> list[str]:
     return sorted(fingerprints)
 
 
-def classify_question(question: str) -> str:
-    lowered = question.lower()
+def classify_query_mode(question: str) -> str:
+    lowered = question.lower().strip()
     metadata_signals = [
         "author",
         "written by",
@@ -580,7 +370,21 @@ def classify_question(question: str) -> str:
         return "metadata"
     if "when was" in lowered and "document" in lowered:
         return "metadata"
-    return "content"
+    if any(phrase in lowered for phrase in OUT_OF_SCOPE_PHRASES):
+        return "out_of_scope_candidate"
+    if any(keyword in lowered for keyword in CONTENT_INTENT_KEYWORDS["summary"]):
+        return "summary"
+    if any(phrase in lowered for phrase in FOLLOW_UP_PHRASES):
+        return "follow_up"
+    if lowered in {"why", "how", "explain", "describe"}:
+        return "follow_up"
+    if any(lowered.startswith(prefix) for prefix in ("why", "how", "explain", "describe")):
+        return "explanatory"
+    return "factoid"
+
+
+def classify_question(question: str) -> str:
+    return "metadata" if classify_query_mode(question) == "metadata" else "content"
 
 
 def infer_content_intent(question: str) -> str:
@@ -588,12 +392,43 @@ def infer_content_intent(question: str) -> str:
     for intent, keywords in CONTENT_INTENT_KEYWORDS.items():
         if any(keyword in lowered for keyword in keywords):
             return intent
+    if lowered.startswith("why") or lowered.startswith("how") or lowered.startswith("explain"):
+        return "benefits"
     return "general"
 
 
 def is_follow_up_question(question: str) -> bool:
+    return classify_query_mode(question) == "follow_up"
+
+
+def is_out_of_scope_candidate(question: str) -> bool:
+    lowered = question.lower()
+    return any(phrase in lowered for phrase in OUT_OF_SCOPE_PHRASES)
+
+
+def build_follow_up_question(question: str, previous: str) -> str:
     lowered = question.lower().strip()
-    return any(phrase in lowered for phrase in FOLLOW_UP_PHRASES)
+    previous_intent = infer_content_intent(previous)
+
+    if "summarize" in lowered or lowered == "summary":
+        return "Summarize the document."
+    if lowered.startswith("why"):
+        if previous_intent == "challenges":
+            return "Explain why the challenges of using AI in healthcare matter according to the document."
+        if previous_intent == "uses":
+            return "Explain why these uses of AI in healthcare are useful according to the document."
+        return f"Explain this based on the document: {previous}"
+    if lowered.startswith("how"):
+        if previous_intent == "benefits":
+            return "How does AI help in healthcare according to the document?"
+        return f"Explain how this works according to the document: {previous}"
+    if previous_intent == "uses":
+        return "Name another use of AI in healthcare from the document."
+    if previous_intent == "challenges":
+        return "What are other challenges of using AI in healthcare?"
+    if previous_intent == "benefits":
+        return "How else does AI help in hospitals according to the document?"
+    return previous
 
 
 def resolve_follow_up_question(question: str) -> tuple[str, str | None]:
@@ -603,16 +438,7 @@ def resolve_follow_up_question(question: str) -> tuple[str, str | None]:
     previous = st.session_state.last_content_question.strip()
     if not previous:
         return question, None
-
-    intent = infer_content_intent(previous)
-    if intent == "uses":
-        rewritten = "Name another use of AI in healthcare from the document."
-    elif intent == "challenges":
-        rewritten = "What are other challenges of using AI in healthcare?"
-    elif intent == "benefits":
-        rewritten = "How else does AI help in hospitals according to the document?"
-    else:
-        rewritten = previous
+    rewritten = build_follow_up_question(question, previous)
     return rewritten, rewritten
 
 
@@ -696,6 +522,14 @@ def retrieve_chunks(
     return ranked[:top_k]
 
 
+def representative_document_chunks(chunks: list[dict[str, Any]], top_k: int = 8) -> list[dict[str, Any]]:
+    if not chunks:
+        return []
+    step = max(1, len(chunks) // max(1, top_k))
+    selected = [chunks[index] for index in range(0, len(chunks), step)]
+    return selected[:top_k]
+
+
 def extract_candidate_units(chunk_text_value: str) -> list[str]:
     sentences = split_sentences(chunk_text_value)
     lines = [line.strip() for line in chunk_text_value.splitlines() if line.strip()]
@@ -742,6 +576,18 @@ def dedupe_answer_parts(parts: list[str]) -> list[str]:
     return deduped
 
 
+def sentence_supports_query(sentence: str, query: str, query_mode: str) -> bool:
+    overlap = lexical_overlap_ratio(query, sentence)
+    lowered = sentence.lower()
+    if query_mode == "summary":
+        return len(tokenize(sentence)) >= 6
+    if query_mode == "explanatory":
+        return overlap >= 0.08 or any(
+            token in lowered for token in tokenize(query) if len(token) > 3
+        )
+    return overlap >= 0.12
+
+
 def summarize_known_phrases(retrieved_chunks: list[dict[str, Any]], phrases: list[str]) -> list[str]:
     found: list[str] = []
     found_norms: set[str] = set()
@@ -785,6 +631,30 @@ def score_candidate_answer(query: str, candidate: str, parent_chunk: dict[str, A
     return round(score, 4)
 
 
+def score_summary_sentence(query: str, candidate: str, parent_chunk: dict[str, Any]) -> float:
+    overlap = lexical_overlap_ratio(query, candidate)
+    score = (0.55 * parent_chunk["combined_score"]) + (0.2 * overlap)
+    candidate_lower = candidate.lower()
+    if any(term in candidate_lower for term in ["ai", "healthcare", "hospital", "patient", "diagnos", "predict"]):
+        score += 0.14
+    if len(candidate.split()) < 7:
+        score -= 0.18
+    if len(candidate.split()) > 36:
+        score -= 0.12
+    return round(score, 4)
+
+
+def score_explanatory_sentence(query: str, candidate: str, parent_chunk: dict[str, Any]) -> float:
+    overlap = lexical_overlap_ratio(query, candidate)
+    score = (0.58 * parent_chunk["combined_score"]) + (0.25 * overlap)
+    candidate_lower = candidate.lower()
+    if any(term in candidate_lower for term in ["because", "helps", "allowing", "improves", "reducing", "support"]):
+        score += 0.12
+    if len(candidate.split()) < 6:
+        score -= 0.12
+    return round(score, 4)
+
+
 def extract_answer_span(query: str, candidate: str, intent: str) -> str:
     if intent == "uses":
         for phrase in KNOWN_USE_CASES:
@@ -809,33 +679,74 @@ def extract_answer_span(query: str, candidate: str, intent: str) -> str:
     return clean_answer_text(candidate)
 
 
+def should_answer(
+    query_mode: str,
+    retrieved_chunks: list[dict[str, Any]],
+    candidate_sentences: list[dict[str, Any]],
+    scores: dict[str, float],
+) -> tuple[bool, dict[str, Any]]:
+    thresholds = {
+        "factoid": {"min_score": 0.28, "min_overlap": 0.18, "min_relevant": 1, "min_chunks": 1},
+        "explanatory": {"min_score": 0.22, "min_overlap": 0.10, "min_relevant": 1, "min_chunks": 1},
+        "summary": {"min_score": 0.18, "min_overlap": 0.05, "min_relevant": 2, "min_chunks": 2},
+        "out_of_scope_candidate": {"min_score": 0.42, "min_overlap": 0.24, "min_relevant": 2, "min_chunks": 2},
+    }
+    config = thresholds.get(query_mode, thresholds["factoid"])
+    best_score = scores.get("best_score", 0.0)
+    overlap_score = scores.get("overlap_score", 0.0)
+    relevant_candidates = [item for item in candidate_sentences if item.get("score", 0.0) >= config["min_score"]]
+    relevant_chunk_count = len(
+        {
+            f"{item.get('doc_name', '')}::{item.get('chunk_id', '')}"
+            for item in relevant_candidates
+        }
+    )
+    retrieved_top_count = len([chunk for chunk in retrieved_chunks if chunk.get("combined_score", 0.0) >= config["min_score"]])
+    decision = (
+        best_score >= config["min_score"]
+        and overlap_score >= config["min_overlap"]
+        and len(relevant_candidates) >= config["min_relevant"]
+        and max(retrieved_top_count, relevant_chunk_count) >= config["min_chunks"]
+    )
+    return decision, {
+        "query_mode": query_mode,
+        "best_score": round(best_score, 4),
+        "overlap_score": round(overlap_score, 4),
+        "min_score": config["min_score"],
+        "min_overlap": config["min_overlap"],
+        "relevant_sentence_count": len(relevant_candidates),
+        "relevant_chunk_count": max(retrieved_top_count, relevant_chunk_count),
+        "decision": "answer" if decision else "refuse",
+    }
+
+
 def has_sufficient_evidence(
     question: str,
     retrieved_sentences: list[dict[str, Any]],
     best_score: float,
     overlap_score: float,
 ) -> tuple[bool, dict[str, Any]]:
-    intent = infer_content_intent(question)
-    min_score = 0.28 if intent in {"uses", "challenges", "benefits"} else 0.34
-    min_overlap = 0.18 if intent in {"uses", "challenges", "benefits"} else 0.22
+    query_mode = classify_query_mode(question)
+    pseudo_chunks = [
+        {
+            "combined_score": item.get("score", 0.0),
+            "doc_name": item.get("doc_name", ""),
+            "chunk_id": item.get("chunk_id", ""),
+        }
+        for item in retrieved_sentences
+    ]
+    return should_answer(
+        "factoid" if query_mode == "follow_up" else query_mode,
+        pseudo_chunks,
+        retrieved_sentences,
+        {"best_score": best_score, "overlap_score": overlap_score},
+    )
 
-    if any(phrase in question.lower() for phrase in ["capital of", "president of", "population of"]):
-        min_score = 0.42
-        min_overlap = 0.24
 
-    relevant_candidates = [item for item in retrieved_sentences if item["score"] >= min_score]
-    has_relevant_sentence = bool(relevant_candidates)
-    decision = best_score >= min_score and overlap_score >= min_overlap and has_relevant_sentence
-
-    return decision, {
-        "intent": intent,
-        "best_score": round(best_score, 4),
-        "overlap_score": round(overlap_score, 4),
-        "min_score": min_score,
-        "min_overlap": min_overlap,
-        "relevant_sentence_count": len(relevant_candidates),
-        "decision": "answer" if decision else "refuse",
-    }
+def fallback_message(query_mode: str, hard_refusal: bool = False) -> str:
+    if hard_refusal or query_mode in {"factoid", "out_of_scope_candidate"}:
+        return REFUSAL_MESSAGE
+    return SOFT_GUIDANCE_MESSAGE
 
 
 def synthesize_local_answer(query: str, retrieved_chunks: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
@@ -935,6 +846,142 @@ def synthesize_local_answer(query: str, retrieved_chunks: list[dict[str, Any]]) 
     return final_answer, debug
 
 
+def answer_factoid_question(query: str, retrieved_chunks: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
+    return synthesize_local_answer(query, retrieved_chunks)
+
+
+def compose_local_summary(query: str, retrieved_chunks: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
+    debug: dict[str, Any] = {
+        "mode": "local-summary",
+        "summary_candidate_sentences": [],
+        "selected_span": None,
+    }
+    candidates: list[dict[str, Any]] = []
+    deduped_preview: list[str] = []
+    seen: set[str] = set()
+
+    for chunk in retrieved_chunks:
+        for sentence in extract_candidate_units(chunk["text"]):
+            if not sentence_supports_query(sentence, query, "summary"):
+                continue
+            score = score_summary_sentence(query, sentence, chunk)
+            normalized = normalize_for_dedupe(sentence)
+            if normalized not in seen:
+                deduped_preview.append(sentence)
+                seen.add(normalized)
+            candidates.append(
+                {
+                    "doc_name": chunk["doc_name"],
+                    "chunk_id": chunk["chunk_id"],
+                    "candidate": sentence,
+                    "score": score,
+                    "overlap": lexical_overlap_ratio(query, sentence),
+                }
+            )
+
+    candidates.sort(key=lambda item: item["score"], reverse=True)
+    debug["summary_candidate_sentences"] = deduped_preview[:12]
+    if not candidates:
+        debug["refusal_reason"] = "no_summary_candidates"
+        debug["fallback_type"] = "soft_guidance"
+        return SOFT_GUIDANCE_MESSAGE, debug
+
+    evidence_ok, evidence = should_answer(
+        "summary",
+        retrieved_chunks,
+        candidates,
+        {"best_score": candidates[0]["score"], "overlap_score": candidates[0]["overlap"]},
+    )
+    debug["evidence"] = evidence
+    if not evidence_ok:
+        debug["refusal_reason"] = "insufficient_summary_evidence"
+        debug["fallback_type"] = "soft_guidance"
+        return SOFT_GUIDANCE_MESSAGE, debug
+
+    selected_parts: list[str] = []
+    used_norms: set[str] = set()
+    for candidate in candidates:
+        normalized = normalize_for_dedupe(candidate["candidate"])
+        if normalized in used_norms:
+            continue
+        selected_parts.append(candidate["candidate"])
+        used_norms.add(normalized)
+        if len(selected_parts) == 3:
+            break
+
+    answer = clean_answer_text(" ".join(dedupe_answer_parts(selected_parts[:3])))
+    debug["selected_span"] = answer
+    return answer, debug
+
+
+def answer_summary_question_local(query: str, retrieved_chunks: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
+    return compose_local_summary(query, retrieved_chunks)
+
+
+def answer_explanatory_question_local(query: str, retrieved_chunks: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
+    debug: dict[str, Any] = {
+        "mode": "local-explanatory",
+        "explanatory_candidate_sentences": [],
+        "selected_span": None,
+    }
+    candidates: list[dict[str, Any]] = []
+    preview: list[str] = []
+    seen: set[str] = set()
+
+    for chunk in retrieved_chunks:
+        for sentence in extract_candidate_units(chunk["text"]):
+            if not sentence_supports_query(sentence, query, "explanatory"):
+                continue
+            score = score_explanatory_sentence(query, sentence, chunk)
+            normalized = normalize_for_dedupe(sentence)
+            if normalized not in seen:
+                preview.append(sentence)
+                seen.add(normalized)
+            candidates.append(
+                {
+                    "doc_name": chunk["doc_name"],
+                    "chunk_id": chunk["chunk_id"],
+                    "candidate": sentence,
+                    "score": score,
+                    "overlap": lexical_overlap_ratio(query, sentence),
+                }
+            )
+
+    candidates.sort(key=lambda item: item["score"], reverse=True)
+    debug["explanatory_candidate_sentences"] = preview[:12]
+    if not candidates:
+        debug["refusal_reason"] = "no_explanatory_candidates"
+        debug["fallback_type"] = "soft_guidance"
+        return SOFT_GUIDANCE_MESSAGE, debug
+
+    evidence_ok, evidence = should_answer(
+        "explanatory",
+        retrieved_chunks,
+        candidates,
+        {"best_score": candidates[0]["score"], "overlap_score": candidates[0]["overlap"]},
+    )
+    debug["evidence"] = evidence
+    if not evidence_ok:
+        debug["refusal_reason"] = "insufficient_explanatory_evidence"
+        debug["fallback_type"] = "soft_guidance"
+        return SOFT_GUIDANCE_MESSAGE, debug
+
+    selected_parts: list[str] = []
+    used_norms: set[str] = set()
+    for candidate in candidates:
+        normalized = normalize_for_dedupe(candidate["candidate"])
+        if normalized in used_norms:
+            continue
+        selected_parts.append(candidate["candidate"])
+        used_norms.add(normalized)
+        if len(selected_parts) == 2:
+            break
+
+    answer = clean_answer_text(" ".join(dedupe_answer_parts(selected_parts)))
+    debug["selected_span"] = answer
+    return answer, debug
+
+
 def calculate_confidence(sources: list[dict[str, Any]], debug: dict[str, Any]) -> float:
     if not sources:
         return 0.98 if debug.get("mode") == "metadata" else 0.0
@@ -965,34 +1012,45 @@ def remote_llm_configured() -> bool:
     return bool(get_llm_settings()["base_url"])
 
 
-def build_remote_prompt(query: str, retrieved_chunks: list[dict[str, Any]]) -> str:
+def build_remote_prompt(query: str, retrieved_chunks: list[dict[str, Any]], query_mode: str) -> str:
     sources = "\n\n".join(
         f"[Source {index}] {chunk['doc_name']} (score={chunk['combined_score']})\n{chunk['text']}"
         for index, chunk in enumerate(retrieved_chunks, start=1)
     )
+    mode_instruction = {
+        "summary": "Summarize the document context in 1-3 grounded sentences.",
+        "explanatory": "Answer the explanatory question using only the retrieved context and include the supporting reasons from the document.",
+        "factoid": "Answer with a concise document-grounded fact.",
+    }.get(query_mode, "Answer using only the provided context.")
     return (
         "You are a careful document question-answering assistant.\n"
         "Answer only from the provided sources.\n"
         "If the answer is not present, reply exactly: I could not find that in the uploaded documents.\n"
-        "Be concise. Prefer short direct answers for factual questions.\n\n"
+        f"{mode_instruction}\n\n"
         f"Retrieved sources:\n{sources}\n\n"
         f"Question: {query}"
     )
 
 
-def answer_with_remote_llm(query: str, retrieved_chunks: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
+def answer_with_remote_llm(query: str, retrieved_chunks: list[dict[str, Any]], query_mode: str) -> tuple[str, dict[str, Any]]:
     settings = get_llm_settings()
-    prompt = build_remote_prompt(query, retrieved_chunks)
+    prompt = build_remote_prompt(query, retrieved_chunks, query_mode)
     debug: dict[str, Any] = {
         "mode": "remote-llm",
         "prompt": prompt,
         "model": settings["model"],
         "host": settings["display_host"],
+        "query_mode": query_mode,
     }
 
     if not settings["base_url"]:
         debug["fallback_reason"] = "no_llm_configured"
-        answer, local_debug = synthesize_local_answer(query, retrieved_chunks)
+        if query_mode == "summary":
+            answer, local_debug = answer_summary_question_local(query, retrieved_chunks)
+        elif query_mode == "explanatory":
+            answer, local_debug = answer_explanatory_question_local(query, retrieved_chunks)
+        else:
+            answer, local_debug = answer_factoid_question(query, retrieved_chunks)
         debug["local_fallback"] = local_debug
         return answer, debug
 
@@ -1022,20 +1080,27 @@ def answer_with_remote_llm(query: str, retrieved_chunks: list[dict[str, Any]]) -
         return answer, debug
     except Exception as exc:
         debug["fallback_reason"] = str(exc)
-        answer, local_debug = synthesize_local_answer(query, retrieved_chunks)
+        if query_mode == "summary":
+            answer, local_debug = answer_summary_question_local(query, retrieved_chunks)
+        elif query_mode == "explanatory":
+            answer, local_debug = answer_explanatory_question_local(query, retrieved_chunks)
+        else:
+            answer, local_debug = answer_factoid_question(query, retrieved_chunks)
         debug["local_fallback"] = local_debug
         return answer, debug
 
 
 def answer_question(query: str) -> dict[str, Any]:
     resolved_query, rewritten = resolve_follow_up_question(query)
-    question_type = classify_question(resolved_query)
+    query_mode = classify_query_mode(resolved_query)
+    question_type = "metadata" if query_mode == "metadata" else "content"
     debug_payload: dict[str, Any] = {
         "question_type": question_type,
+        "query_mode": query_mode,
         "rewritten_follow_up_question": rewritten,
     }
 
-    if question_type == "metadata":
+    if query_mode == "metadata":
         metadata_answer, metadata_debug = try_metadata_answer(resolved_query, st.session_state.documents)
         debug_payload["metadata_debug"] = metadata_debug
         if metadata_answer:
@@ -1056,37 +1121,101 @@ def answer_question(query: str) -> dict[str, Any]:
             "resolved_query": resolved_query,
         }
 
-    retrieved = retrieve_chunks(
-        query=resolved_query,
-        vectorizer=st.session_state.vectorizer,
-        chunk_matrix=st.session_state.chunk_matrix,
-        chunks=st.session_state.body_chunks,
-        top_k=6,
-    )
-    debug_payload["retrieved_chunks"] = retrieved
-
-    if not retrieved or retrieved[0]["combined_score"] < 0.18:
-        debug_payload["mode"] = "content-refusal"
-        debug_payload["refusal_reason"] = "retrieval_below_threshold"
-        debug_payload["best_score"] = retrieved[0]["combined_score"] if retrieved else 0.0
-        debug_payload["overlap_score"] = retrieved[0]["overlap"] if retrieved else 0.0
+    if query_mode == "follow_up" and rewritten is None:
+        debug_payload["mode"] = "soft-guidance"
+        debug_payload["fallback_type"] = "soft_guidance"
         return {
-            "answer": REFUSAL_MESSAGE,
-            "sources": retrieved[:3],
+            "answer": SOFT_GUIDANCE_MESSAGE,
+            "sources": [],
             "debug": debug_payload,
             "confidence": 0.0,
             "resolved_query": resolved_query,
         }
 
+    if query_mode == "out_of_scope_candidate":
+        debug_payload["mode"] = "hard-refusal"
+        debug_payload["fallback_type"] = "hard_refusal"
+        return {
+            "answer": REFUSAL_MESSAGE,
+            "sources": [],
+            "debug": debug_payload,
+            "confidence": 0.0,
+            "resolved_query": resolved_query,
+        }
+
+    top_k = 8 if query_mode == "summary" else 6
+    retrieval_query = resolved_query
+    if query_mode == "summary" and resolved_query.lower().strip() in {"summarize", "summary", "summarize the document."}:
+        retrieval_query = "document summary main idea overview healthcare ai"
+
+    retrieved = retrieve_chunks(
+        query=retrieval_query,
+        vectorizer=st.session_state.vectorizer,
+        chunk_matrix=st.session_state.chunk_matrix,
+        chunks=st.session_state.body_chunks,
+        top_k=top_k,
+    )
+    if query_mode == "summary" and not retrieved:
+        retrieved = representative_document_chunks(st.session_state.body_chunks, top_k=8)
+    debug_payload["retrieved_chunks"] = retrieved
+
+    if not retrieved:
+        fallback = fallback_message(query_mode, hard_refusal=is_out_of_scope_candidate(resolved_query))
+        debug_payload["mode"] = "content-refusal"
+        debug_payload["fallback_type"] = "hard_refusal" if fallback == REFUSAL_MESSAGE else "soft_guidance"
+        debug_payload["refusal_reason"] = "no_retrieved_chunks"
+        return {
+            "answer": fallback,
+            "sources": [],
+            "debug": debug_payload,
+            "confidence": 0.0,
+            "resolved_query": resolved_query,
+        }
+
+    if query_mode == "summary":
+        precheck_candidates = [
+            {"score": chunk["combined_score"], "overlap": chunk["overlap"], "doc_name": chunk["doc_name"], "chunk_id": chunk["chunk_id"]}
+            for chunk in retrieved
+        ]
+        should_summarize, evidence = should_answer(
+            "summary",
+            retrieved,
+            precheck_candidates,
+            {"best_score": retrieved[0]["combined_score"], "overlap_score": retrieved[0]["overlap"]},
+        )
+        debug_payload["evidence"] = evidence
+        if not should_summarize:
+            return {
+                "answer": SOFT_GUIDANCE_MESSAGE,
+                "sources": retrieved[:4],
+                "debug": {**debug_payload, "mode": "soft-guidance", "fallback_type": "soft_guidance"},
+                "confidence": 0.0,
+                "resolved_query": resolved_query,
+            }
+
     if remote_llm_configured():
-        answer, mode_debug = answer_with_remote_llm(resolved_query, retrieved[:4])
+        remote_chunks = retrieved[:6] if query_mode == "summary" else retrieved[:4]
+        answer, mode_debug = answer_with_remote_llm(
+            resolved_query,
+            remote_chunks,
+            "explanatory" if query_mode == "follow_up" else query_mode,
+        )
     else:
-        answer, mode_debug = synthesize_local_answer(resolved_query, retrieved[:4])
+        if query_mode == "summary":
+            answer, mode_debug = answer_summary_question_local(resolved_query, retrieved[:8])
+        elif query_mode in {"explanatory", "follow_up"}:
+            answer, mode_debug = answer_explanatory_question_local(resolved_query, retrieved[:6])
+        else:
+            answer, mode_debug = answer_factoid_question(resolved_query, retrieved[:4])
 
     debug_payload.update(mode_debug)
     evidence = debug_payload.get("evidence", {})
     debug_payload["best_score"] = evidence.get("best_score", retrieved[0]["combined_score"])
     debug_payload["overlap_score"] = evidence.get("overlap_score", retrieved[0]["overlap"])
+    if answer == SOFT_GUIDANCE_MESSAGE:
+        debug_payload["fallback_type"] = "soft_guidance"
+    elif answer == REFUSAL_MESSAGE:
+        debug_payload["fallback_type"] = "hard_refusal"
     return {
         "answer": answer,
         "sources": retrieved[:4],
@@ -1157,18 +1286,8 @@ def process_uploaded_documents(uploaded_files: list[Any]) -> None:
 
 
 def render_hero() -> None:
-    st.markdown(
-        """
-        <div class="top-shell">
-            <div class="app-title">Document Intelligence RAG Assistant</div>
-            <p class="app-subtitle">
-                Upload your files, index them once, and chat with your documents in a grounded,
-                source-aware workflow.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.title("Document Intelligence RAG Assistant")
+    st.caption("Upload your files, index them once, and chat with your documents in a grounded, source-aware workflow.")
 
 
 def render_stats() -> None:
@@ -1185,15 +1304,7 @@ def render_stats() -> None:
     columns = st.columns(4)
     for column, (label, value) in zip(columns, stats):
         with column:
-            st.markdown(
-                f"""
-                <div class="stat-card">
-                    <div class="stat-label">{label}</div>
-                    <div class="stat-value">{value}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            st.metric(label, value)
 
 
 def render_sidebar() -> None:
@@ -1211,13 +1322,11 @@ def render_sidebar() -> None:
         st.markdown("---")
         st.subheader("Runtime")
         if remote_llm_configured():
-            st.markdown(
-                f"<span class='mode-pill'>Remote LLM</span><span class='mode-pill'>{llm_settings['display_host']}</span>",
-                unsafe_allow_html=True,
-            )
+            st.write("Remote LLM")
+            st.caption(llm_settings["display_host"])
             st.caption(f"Model: {llm_settings['model']}")
         else:
-            st.markdown("<span class='mode-pill'>Local Extractive</span>", unsafe_allow_html=True)
+            st.write("Local Extractive")
             st.caption("No public LLM endpoint configured.")
 
         st.markdown("---")
@@ -1262,57 +1371,18 @@ def render_debug_panels() -> None:
         with st.expander("Last answer debug", expanded=True):
             st.json(st.session_state.last_debug)
 
-
-def render_chat_bubble(role: str, text: str, mode: str | None = None, confidence: float | None = None, resolved_query: str | None = None, original_question: str | None = None) -> None:
-    bubble_class = "user" if role == "user" else "assistant"
-    label = "You" if role == "user" else "Assistant"
-
-    badge_html = ""
-    if role == "assistant" and mode is not None and confidence is not None:
-        badge_html = (
-            "<div class='bubble-meta'>"
-            f"<span class='mode-pill'>{escape(mode)}</span>"
-            f"<span class='confidence-pill'>Confidence {confidence:.2f}</span>"
-            "</div>"
-        )
-
-    resolved_html = ""
-    if role == "user" and resolved_query and original_question and resolved_query != original_question:
-        resolved_html = f"<div class='resolved-text'>Resolved as: {escape(resolved_query)}</div>"
-
-    st.markdown(
-        f"""
-        <div class="message-wrap {bubble_class}">
-            <div class="bubble-shell">
-                <div class="message-label">{label}</div>
-                <div class="bubble {bubble_class}">
-                    {badge_html}
-                    {escape(text)}
-                </div>
-                {resolved_html}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 def render_history() -> None:
     for index, item in enumerate(st.session_state.answer_history, start=1):
-        render_chat_bubble(
-            role="user",
-            text=item["question"],
-            resolved_query=item.get("resolved_query"),
-            original_question=item["question"],
-        )
+        with st.chat_message("user"):
+            st.markdown(strip_html_artifacts(item["question"]))
+            resolved_query = strip_html_artifacts(item.get("resolved_query", ""))
+            if resolved_query and resolved_query != strip_html_artifacts(item["question"]):
+                st.caption(f"Resolved as: {resolved_query}")
         mode = item["debug"].get("mode", item["debug"].get("question_type", "unknown"))
         confidence = item.get("confidence", 0.0)
-        render_chat_bubble(
-            role="assistant",
-            text=item["answer"],
-            mode=mode,
-            confidence=confidence,
-        )
+        with st.chat_message("assistant"):
+            st.markdown(strip_html_artifacts(item["answer"]))
+            st.caption(f"Mode: {mode} | Confidence: {confidence:.2f}")
 
         with st.expander("Sources", expanded=False):
             if not item["sources"]:
@@ -1349,22 +1419,25 @@ def register_answer_usage(answer: str, sources: list[dict[str, Any]], debug: dic
 
 
 def handle_new_question(question: str) -> None:
+    question = strip_html_artifacts(question)
     result = answer_question(question)
+    clean_answer = strip_html_artifacts(result["answer"])
+    clean_resolved_query = strip_html_artifacts(result["resolved_query"])
     st.session_state.current_question = question
     st.session_state.retrieved_sources = result["sources"]
     st.session_state.last_debug = result["debug"]
     st.session_state.last_prompt = result["debug"].get("prompt", "")
 
-    if classify_question(result["resolved_query"]) == "content":
-        st.session_state.last_content_question = result["resolved_query"]
+    if classify_query_mode(clean_resolved_query) != "metadata":
+        st.session_state.last_content_question = clean_resolved_query
 
-    register_answer_usage(result["answer"], result["sources"], result["debug"])
+    register_answer_usage(clean_answer, result["sources"], result["debug"])
 
     st.session_state.answer_history.append(
         {
             "question": question,
-            "resolved_query": result["resolved_query"],
-            "answer": result["answer"],
+            "resolved_query": clean_resolved_query,
+            "answer": clean_answer,
             "sources": result["sources"],
             "debug": result["debug"],
             "confidence": result["confidence"],
@@ -1378,7 +1451,9 @@ def handle_new_question(question: str) -> None:
 # 3. First use question -> one of "Medical imaging", "Predictive analytics", "Drug discovery"
 # 4. Follow-up use questions -> different valid uses when possible
 # 5. Challenges question -> should mention both privacy and incorrect diagnoses
-# 6. Out-of-scope question like "What is the capital of Australia?" -> refusal
+# 6. Explanatory question -> grounded hospital/benefit explanation from document content
+# 7. Summary question -> short grounded summary from retrieved body chunks
+# 8. Out-of-scope question like "What is the capital of Australia?" -> refusal
 
 
 st.set_page_config(page_title="Document Intelligence RAG Assistant", layout="wide")
@@ -1388,7 +1463,7 @@ render_sidebar()
 render_hero()
 render_stats()
 
-st.markdown("<div class='section-heading'>Upload Documents</div>", unsafe_allow_html=True)
+st.subheader("Upload Documents")
 uploaded_files = st.file_uploader(
     "Upload PDF or DOCX files",
     type=["pdf", "docx"],
@@ -1412,16 +1487,15 @@ if uploaded_files:
             f"{len(st.session_state.documents)} file(s)."
         )
 else:
-    st.markdown("<div class='upload-note'>Upload files and click <strong>Process Documents</strong> to start a new indexed session.</div>", unsafe_allow_html=True)
+    st.caption("Upload files and click Process Documents to start a new indexed session.")
 
-st.markdown("<div class='section-heading'>Indexed Files</div>", unsafe_allow_html=True)
+st.subheader("Indexed Files")
 if st.session_state.indexed_files:
-    pills = "".join(f"<span class='file-pill'>{escape(name)}</span>" for name in st.session_state.indexed_files)
-    st.markdown(f"<div class='files-wrap'>{pills}</div>", unsafe_allow_html=True)
+    st.write(st.session_state.indexed_files)
 else:
     st.caption("No documents indexed yet.")
 
-st.markdown("<div class='section-heading'>Chat</div>", unsafe_allow_html=True)
+st.subheader("Chat")
 
 prompt = st.chat_input("Ask about your documents...", disabled=not bool(st.session_state.documents))
 if prompt:
@@ -1429,7 +1503,7 @@ if prompt:
         handle_new_question(prompt)
 
 if not st.session_state.documents:
-    st.markdown("<div class='thinking-note'>Upload and process documents to start asking questions.</div>", unsafe_allow_html=True)
+    st.caption("Upload and process documents to start asking questions.")
 else:
     render_history()
     render_debug_panels()
