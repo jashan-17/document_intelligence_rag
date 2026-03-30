@@ -18,18 +18,20 @@ from src.loader import load_document
 UPLOAD_DIR = Path("data/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+REFUSAL_MESSAGE = "I could not find that in the uploaded documents."
+
 METADATA_LABELS = {
     "title": ["title", "document title", "name of the document"],
     "author": ["author", "written by", "who wrote", "creator"],
     "published": ["published", "publication date", "publish date", "date"],
 }
-
 METADATA_FIELDS = tuple(METADATA_LABELS.keys())
 
-CONTENT_KEYWORDS = {
+CONTENT_INTENT_KEYWORDS = {
     "uses": ["use", "uses", "application", "applications", "example", "examples"],
     "challenges": ["challenge", "challenges", "risk", "risks", "problem", "problems"],
     "benefits": ["help", "helps", "benefit", "benefits", "improve", "improves"],
+    "summary": ["summarize", "summary", "overview", "main point", "what is this about"],
 }
 
 KNOWN_USE_CASES = [
@@ -38,6 +40,7 @@ KNOWN_USE_CASES = [
     "drug discovery",
     "patient monitoring",
     "clinical decision support",
+    "automating administrative tasks",
 ]
 
 KNOWN_CHALLENGES = [
@@ -49,7 +52,67 @@ KNOWN_CHALLENGES = [
     "limited training data",
 ]
 
-REFUSAL_MESSAGE = "I could not find that in the uploaded documents."
+APP_CSS = """
+<style>
+    .stApp {
+        background:
+            radial-gradient(circle at top left, rgba(60, 130, 246, 0.12), transparent 28%),
+            linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
+    }
+    .hero-card {
+        background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 60%, #38bdf8 100%);
+        padding: 1.5rem 1.75rem;
+        border-radius: 20px;
+        color: white;
+        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.18);
+        margin-bottom: 1rem;
+    }
+    .hero-card h1 {
+        color: white;
+        margin: 0 0 0.35rem 0;
+        font-size: 2.1rem;
+    }
+    .hero-card p {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 1rem;
+        max-width: 52rem;
+    }
+    .stat-card {
+        background: rgba(255, 255, 255, 0.85);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 16px;
+        padding: 1rem 1.1rem;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+    }
+    .stat-label {
+        font-size: 0.85rem;
+        color: #475569;
+        margin-bottom: 0.15rem;
+    }
+    .stat-value {
+        font-size: 1.65rem;
+        font-weight: 700;
+        color: #0f172a;
+    }
+    .chip-row {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin: 0.5rem 0 0.75rem 0;
+    }
+    .mode-pill {
+        display: inline-block;
+        padding: 0.35rem 0.7rem;
+        border-radius: 999px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        background: rgba(59, 130, 246, 0.12);
+        color: #1d4ed8;
+        margin-right: 0.45rem;
+    }
+</style>
+"""
 
 
 def init_session_state() -> None:
@@ -105,7 +168,21 @@ def split_sentences(text: str) -> list[str]:
     normalized = re.sub(r"\s+", " ", text.strip())
     if not normalized:
         return []
-    return [part.strip() for part in re.split(r"(?<=[.!?])\s+", normalized) if part.strip()]
+    return [piece.strip() for piece in re.split(r"(?<=[.!?])\s+", normalized) if piece.strip()]
+
+
+def lexical_overlap_ratio(query: str, text: str) -> float:
+    query_tokens = set(tokenize(query))
+    text_tokens = set(tokenize(text))
+    if not query_tokens or not text_tokens:
+        return 0.0
+    return len(query_tokens & text_tokens) / len(query_tokens)
+
+
+def clean_answer_text(text: str) -> str:
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s+([,.;:])", r"\1", text)
+    return text
 
 
 def extract_text_from_file(file_path: str) -> str:
@@ -114,10 +191,9 @@ def extract_text_from_file(file_path: str) -> str:
 
 def extract_value_after_label(line: str, field: str) -> str | None:
     for label in METADATA_LABELS[field]:
-        pattern = rf"^{re.escape(label)}\s*:\s*(.+)$"
-        match = re.match(pattern, line.strip(), flags=re.IGNORECASE)
+        match = re.match(rf"^{re.escape(label)}\s*:\s*(.+)$", line.strip(), flags=re.IGNORECASE)
         if match:
-            return match.group(1).strip()
+            return clean_answer_text(match.group(1))
     return None
 
 
@@ -134,10 +210,10 @@ def extract_document_metadata(text: str) -> dict[str, str]:
     if "title" not in metadata and candidate_lines:
         first_line = candidate_lines[0]
         if len(first_line) <= 120 and ":" not in first_line:
-            metadata["title"] = first_line
+            metadata["title"] = clean_answer_text(first_line)
 
     if "published" not in metadata:
-        year_match = re.search(r"\b(19|20)\d{2}\b", text[:1500])
+        year_match = re.search(r"\b(19|20)\d{2}\b", text[:1600])
         if year_match:
             metadata["published"] = year_match.group(0)
 
@@ -195,9 +271,8 @@ def chunk_text(text: str, chunk_size: int = 700, overlap_sentences: int = 1) -> 
             units.append(paragraph)
             continue
 
-        sentences = split_sentences(paragraph)
         current = ""
-        for sentence in sentences:
+        for sentence in split_sentences(paragraph):
             candidate = f"{current} {sentence}".strip()
             if current and len(candidate) > chunk_size:
                 units.append(current.strip())
@@ -209,15 +284,14 @@ def chunk_text(text: str, chunk_size: int = 700, overlap_sentences: int = 1) -> 
 
     chunks: list[str] = []
     current_sentences: list[str] = []
-
     for unit in units:
-        unit_sentences = split_sentences(unit) or [unit]
-        prospective = " ".join(current_sentences + unit_sentences).strip()
+        sentences = split_sentences(unit) or [unit]
+        prospective = " ".join(current_sentences + sentences).strip()
         if current_sentences and len(prospective) > chunk_size:
             chunks.append(" ".join(current_sentences).strip())
-            current_sentences = current_sentences[-overlap_sentences:] + unit_sentences
+            current_sentences = current_sentences[-overlap_sentences:] + sentences
         else:
-            current_sentences.extend(unit_sentences)
+            current_sentences.extend(sentences)
 
     if current_sentences:
         chunks.append(" ".join(current_sentences).strip())
@@ -236,18 +310,28 @@ def fingerprint_uploaded_files(uploaded_files: list[Any]) -> list[str]:
 
 def classify_question(question: str) -> str:
     lowered = question.lower()
-    if (
-        "author" in lowered
-        or "written by" in lowered
-        or "who wrote" in lowered
-        or "title" in lowered
-        or "name of the document" in lowered
-        or "published" in lowered
-        or "publication date" in lowered
-        or "when was" in lowered and "document" in lowered
-    ):
+    metadata_signals = [
+        "author",
+        "written by",
+        "who wrote",
+        "title",
+        "name of the document",
+        "published",
+        "publication date",
+    ]
+    if any(signal in lowered for signal in metadata_signals):
+        return "metadata"
+    if "when was" in lowered and "document" in lowered:
         return "metadata"
     return "content"
+
+
+def infer_content_intent(question: str) -> str:
+    lowered = question.lower()
+    for intent, keywords in CONTENT_INTENT_KEYWORDS.items():
+        if any(keyword in lowered for keyword in keywords):
+            return intent
+    return "general"
 
 
 def build_index(chunks: list[dict[str, Any]]) -> tuple[TfidfVectorizer | None, Any]:
@@ -259,39 +343,27 @@ def build_index(chunks: list[dict[str, Any]]) -> tuple[TfidfVectorizer | None, A
         stop_words="english",
         ngram_range=(1, 2),
         sublinear_tf=True,
+        min_df=1,
     )
     matrix = vectorizer.fit_transform([chunk["search_text"] for chunk in chunks])
     return vectorizer, matrix
 
 
-def lexical_overlap_ratio(query: str, text: str) -> float:
-    query_tokens = set(tokenize(query))
-    text_tokens = set(tokenize(text))
-    if not query_tokens or not text_tokens:
-        return 0.0
-    return len(query_tokens & text_tokens) / len(query_tokens)
-
-
 def try_metadata_answer(query: str, documents: list[dict[str, Any]]) -> tuple[str | None, dict[str, Any]]:
-    debug: dict[str, Any] = {"classification": "metadata", "metadata_candidates": []}
-
-    if "author" in query.lower() or "written by" in query.lower() or "who wrote" in query.lower():
+    lowered = query.lower()
+    if "author" in lowered or "written by" in lowered or "who wrote" in lowered:
         field = "author"
-    elif "title" in query.lower() or "name of the document" in query.lower():
+    elif "title" in lowered or "name of the document" in lowered:
         field = "title"
     else:
         field = "published"
 
-    debug["field"] = field
+    debug: dict[str, Any] = {"mode": "metadata", "field": field, "metadata_candidates": []}
     for document in documents:
         value = document["metadata"].get(field)
         if value:
             debug["metadata_candidates"].append(
-                {
-                    "doc_name": document["name"],
-                    "field": field,
-                    "value": value,
-                }
+                {"doc_name": document["name"], "field": field, "value": value}
             )
             return value, debug
 
@@ -303,35 +375,31 @@ def retrieve_chunks(
     vectorizer: TfidfVectorizer | None,
     chunk_matrix: Any,
     chunks: list[dict[str, Any]],
-    top_k: int = 5,
+    top_k: int = 6,
 ) -> list[dict[str, Any]]:
     if not vectorizer or chunk_matrix is None or not chunks:
         return []
 
     query_vector = vectorizer.transform([query])
     similarities = cosine_similarity(query_vector, chunk_matrix).flatten()
-    lowered = query.lower()
+    intent = infer_content_intent(query)
 
     ranked: list[dict[str, Any]] = []
     for idx, chunk in enumerate(chunks):
         similarity = float(similarities[idx])
         overlap = lexical_overlap_ratio(query, chunk["search_text"])
-
         keyword_boost = 0.0
-        if any(keyword in lowered for keyword in CONTENT_KEYWORDS["uses"]):
-            for phrase in KNOWN_USE_CASES:
-                if phrase in chunk["text"].lower():
-                    keyword_boost += 0.15
-        if any(keyword in lowered for keyword in CONTENT_KEYWORDS["challenges"]):
-            for phrase in KNOWN_CHALLENGES:
-                if phrase in chunk["text"].lower():
-                    keyword_boost += 0.12
-        if any(keyword in lowered for keyword in CONTENT_KEYWORDS["benefits"]):
-            if any(term in chunk["text"].lower() for term in ["help", "improve", "faster", "better", "support"]):
-                keyword_boost += 0.08
+        chunk_lower = chunk["text"].lower()
 
-        sentence_density = min(len(split_sentences(chunk["text"])), 6) / 10
-        combined = (0.68 * similarity) + (0.22 * overlap) + keyword_boost + sentence_density
+        if intent == "uses":
+            keyword_boost += 0.12 * sum(phrase in chunk_lower for phrase in KNOWN_USE_CASES)
+        elif intent == "challenges":
+            keyword_boost += 0.11 * sum(phrase in chunk_lower for phrase in KNOWN_CHALLENGES)
+        elif intent == "benefits":
+            keyword_boost += 0.05 * sum(word in chunk_lower for word in ["help", "helps", "improve", "support"])
+
+        sentence_bonus = min(len(split_sentences(chunk["text"])), 5) / 20
+        combined = (0.72 * similarity) + (0.22 * overlap) + keyword_boost + sentence_bonus
 
         ranked.append(
             {
@@ -347,22 +415,23 @@ def retrieve_chunks(
 
 
 def extract_candidate_units(chunk_text_value: str) -> list[str]:
-    lines = [line.strip() for line in chunk_text_value.splitlines() if line.strip()]
     sentences = split_sentences(chunk_text_value)
+    lines = [line.strip() for line in chunk_text_value.splitlines() if line.strip()]
+    candidates: list[str] = []
     seen: set[str] = set()
-    ordered: list[str] = []
     for item in sentences + lines:
-        if item not in seen:
-            ordered.append(item)
+        item = clean_answer_text(item)
+        if item and item not in seen:
+            candidates.append(item)
             seen.add(item)
-    return ordered
+    return candidates
 
 
 def find_phrase_in_text(text: str, phrase: str) -> str | None:
     match = re.search(re.escape(phrase), text, flags=re.IGNORECASE)
     if not match:
         return None
-    return text[match.start() : match.end()]
+    return clean_answer_text(text[match.start() : match.end()])
 
 
 def extract_list_item(text: str) -> str | None:
@@ -373,16 +442,44 @@ def extract_list_item(text: str) -> str | None:
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
-            parts = [part.strip(" .") for part in re.split(r",| and ", match.group(1)) if part.strip()]
+            parts = [clean_answer_text(part.strip(" .")) for part in re.split(r",| and ", match.group(1)) if part.strip()]
             if parts:
                 return parts[0]
     return None
 
 
-def extract_answer_span(query: str, candidate: str) -> str:
-    lowered = query.lower()
+def summarize_known_phrases(retrieved_chunks: list[dict[str, Any]], phrases: list[str], limit: int = 3) -> list[str]:
+    found: list[str] = []
+    for chunk in retrieved_chunks:
+        for phrase in phrases:
+            matched = find_phrase_in_text(chunk["text"], phrase)
+            if matched and matched.lower() not in {item.lower() for item in found}:
+                found.append(matched)
+                if len(found) == limit:
+                    return found
+    return found
 
-    if any(keyword in lowered for keyword in CONTENT_KEYWORDS["uses"]):
+
+def score_candidate_answer(query: str, candidate: str, parent_chunk: dict[str, Any], intent: str) -> float:
+    overlap = lexical_overlap_ratio(query, candidate)
+    score = (0.62 * parent_chunk["combined_score"]) + (0.3 * overlap)
+    candidate_lower = candidate.lower()
+
+    if intent == "uses" and any(phrase in candidate_lower for phrase in KNOWN_USE_CASES):
+        score += 0.22
+    if intent == "challenges" and any(phrase in candidate_lower for phrase in KNOWN_CHALLENGES):
+        score += 0.2
+    if intent == "benefits" and any(term in candidate_lower for term in ["help", "improve", "support"]):
+        score += 0.12
+    if len(candidate) > 260:
+        score -= 0.18
+    if len(candidate.split()) < 3:
+        score -= 0.12
+    return round(score, 4)
+
+
+def extract_answer_span(query: str, candidate: str, intent: str) -> str:
+    if intent == "uses":
         for phrase in KNOWN_USE_CASES:
             matched = find_phrase_in_text(candidate, phrase)
             if matched:
@@ -391,47 +488,23 @@ def extract_answer_span(query: str, candidate: str) -> str:
         if list_item:
             return list_item
 
-    if any(keyword in lowered for keyword in CONTENT_KEYWORDS["challenges"]):
-        found: list[str] = []
+    if intent == "challenges":
+        found = []
         for phrase in KNOWN_CHALLENGES:
             matched = find_phrase_in_text(candidate, phrase)
-            if matched:
+            if matched and matched.lower() not in {item.lower() for item in found}:
                 found.append(matched)
         if found:
-            return ", ".join(dict.fromkeys(found))
+            return ", ".join(found[:3])
 
-    return candidate.strip()
-
-
-def score_candidate_answer(query: str, candidate: str, parent_chunk: dict[str, Any]) -> float:
-    overlap = lexical_overlap_ratio(query, candidate)
-    score = (0.62 * parent_chunk["combined_score"]) + (0.28 * overlap)
-
-    lowered = query.lower()
-    candidate_lower = candidate.lower()
-
-    if any(keyword in lowered for keyword in CONTENT_KEYWORDS["uses"]) and any(
-        phrase in candidate_lower for phrase in KNOWN_USE_CASES
-    ):
-        score += 0.25
-    if any(keyword in lowered for keyword in CONTENT_KEYWORDS["challenges"]) and any(
-        phrase in candidate_lower for phrase in KNOWN_CHALLENGES
-    ):
-        score += 0.22
-    if len(candidate) > 240:
-        score -= 0.18
-    if len(candidate.split()) < 3:
-        score -= 0.15
-
-    return round(score, 4)
+    return clean_answer_text(candidate)
 
 
-def answer_with_local_extractive_mode(
-    query: str,
-    retrieved_chunks: list[dict[str, Any]],
-) -> tuple[str, dict[str, Any]]:
+def synthesize_local_answer(query: str, retrieved_chunks: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
+    intent = infer_content_intent(query)
     debug: dict[str, Any] = {
         "mode": "local-extractive",
+        "intent": intent,
         "selected_span": None,
         "candidate_answers": [],
     }
@@ -444,11 +517,26 @@ def answer_with_local_extractive_mode(
         debug["refusal_reason"] = f"low_retrieval_score:{retrieved_chunks[0]['combined_score']}"
         return REFUSAL_MESSAGE, debug
 
+    if intent == "uses":
+        known_matches = summarize_known_phrases(retrieved_chunks, KNOWN_USE_CASES, limit=3)
+        if known_matches:
+            debug["selected_span"] = known_matches[0]
+            debug["known_phrase_matches"] = known_matches
+            return known_matches[0], debug
+
+    if intent == "challenges":
+        known_matches = summarize_known_phrases(retrieved_chunks, KNOWN_CHALLENGES, limit=3)
+        if known_matches:
+            answer = ", ".join(known_matches[:3])
+            debug["selected_span"] = answer
+            debug["known_phrase_matches"] = known_matches
+            return answer, debug
+
     candidates: list[dict[str, Any]] = []
     for chunk in retrieved_chunks:
         for candidate in extract_candidate_units(chunk["text"]):
-            answer_span = extract_answer_span(query, candidate)
-            candidate_score = score_candidate_answer(query, candidate, chunk)
+            answer_span = extract_answer_span(query, candidate, intent)
+            candidate_score = score_candidate_answer(query, candidate, chunk, intent)
             candidates.append(
                 {
                     "doc_name": chunk["doc_name"],
@@ -466,9 +554,29 @@ def answer_with_local_extractive_mode(
         debug["refusal_reason"] = "weak_candidate_score"
         return REFUSAL_MESSAGE, debug
 
-    selected = candidates[0]
-    debug["selected_span"] = selected["answer_span"]
-    return selected["answer_span"], debug
+    top_candidates = candidates[:2]
+    selected = top_candidates[0]["answer_span"]
+    if intent in {"benefits", "summary", "general"} and len(top_candidates) > 1:
+        secondary = top_candidates[1]["answer_span"]
+        if secondary.lower() != selected.lower() and lexical_overlap_ratio(query, secondary) > 0.18:
+            selected = f"{selected} {secondary}"
+
+    selected = clean_answer_text(selected)
+    debug["selected_span"] = selected
+    return selected, debug
+
+
+def calculate_confidence(sources: list[dict[str, Any]], debug: dict[str, Any]) -> float:
+    if not sources:
+        return 0.98 if debug.get("mode") == "metadata" else 0.0
+    top_score = sources[0]["combined_score"]
+    if debug.get("mode") == "remote-llm":
+        return round(min(0.95, 0.45 + top_score), 2)
+    if debug.get("mode") == "local-extractive":
+        candidate_answers = debug.get("candidate_answers", [])
+        best_candidate_score = candidate_answers[0]["score"] if candidate_answers else top_score
+        return round(min(0.94, 0.35 + top_score + (best_candidate_score / 2.5)), 2)
+    return round(min(0.98, 0.6 + top_score), 2)
 
 
 def get_llm_settings() -> dict[str, str | None]:
@@ -498,9 +606,9 @@ def build_remote_prompt(query: str, retrieved_chunks: list[dict[str, Any]]) -> s
     )
     return (
         "You are a careful document question-answering assistant.\n"
-        "Answer using only the provided retrieved sources.\n"
+        "Answer only from the provided sources.\n"
         "If the answer is not present, reply exactly: I could not find that in the uploaded documents.\n"
-        "For direct factual questions, answer concisely.\n\n"
+        "Be concise. Prefer short direct answers for factual questions.\n\n"
         f"Retrieved sources:\n{sources}\n\n"
         f"Question: {query}"
     )
@@ -518,7 +626,7 @@ def answer_with_remote_llm(query: str, retrieved_chunks: list[dict[str, Any]]) -
 
     if not settings["base_url"]:
         debug["fallback_reason"] = "no_llm_configured"
-        answer, local_debug = answer_with_local_extractive_mode(query, retrieved_chunks)
+        answer, local_debug = synthesize_local_answer(query, retrieved_chunks)
         debug["local_fallback"] = local_debug
         return answer, debug
 
@@ -526,7 +634,7 @@ def answer_with_remote_llm(query: str, retrieved_chunks: list[dict[str, Any]]) -
         client = OpenAI(
             api_key=settings["api_key"],
             base_url=settings["base_url"],
-            timeout=60.0,
+            timeout=45.0,
         )
         response = client.chat.completions.create(
             model=settings["model"] or "Qwen/Qwen2.5-7B-Instruct",
@@ -535,20 +643,20 @@ def answer_with_remote_llm(query: str, retrieved_chunks: list[dict[str, Any]]) -
                 {
                     "role": "system",
                     "content": (
-                        "Answer only from the supplied document body context. "
-                        "If the answer is missing, say you could not find it in the uploaded documents."
+                        "Answer only from the provided document sources. "
+                        "If the answer is not present, say you could not find it in the uploaded documents."
                     ),
                 },
                 {"role": "user", "content": prompt},
             ],
         )
-        answer = (response.choices[0].message.content or "").strip()
+        answer = clean_answer_text(response.choices[0].message.content or "")
         if not answer:
             raise ValueError("Empty LLM response")
         return answer, debug
     except Exception as exc:
         debug["fallback_reason"] = str(exc)
-        answer, local_debug = answer_with_local_extractive_mode(query, retrieved_chunks)
+        answer, local_debug = synthesize_local_answer(query, retrieved_chunks)
         debug["local_fallback"] = local_debug
         return answer, debug
 
@@ -563,31 +671,50 @@ def answer_question(query: str) -> dict[str, Any]:
         if metadata_answer:
             debug_payload["mode"] = "metadata"
             debug_payload["selected_span"] = metadata_answer
-            return {"answer": metadata_answer, "sources": [], "debug": debug_payload}
-        debug_payload["mode"] = "metadata-refusal"
-        return {"answer": REFUSAL_MESSAGE, "sources": [], "debug": debug_payload}
+            return {
+                "answer": metadata_answer,
+                "sources": [],
+                "debug": debug_payload,
+                "confidence": calculate_confidence([], debug_payload),
+            }
+        return {
+            "answer": REFUSAL_MESSAGE,
+            "sources": [],
+            "debug": debug_payload,
+            "confidence": 0.0,
+        }
 
     retrieved = retrieve_chunks(
         query=query,
         vectorizer=st.session_state.vectorizer,
         chunk_matrix=st.session_state.chunk_matrix,
         chunks=st.session_state.body_chunks,
-        top_k=5,
+        top_k=6,
     )
     debug_payload["retrieved_chunks"] = retrieved
 
     if not retrieved or retrieved[0]["combined_score"] < 0.18:
         debug_payload["mode"] = "content-refusal"
         debug_payload["refusal_reason"] = "retrieval_below_threshold"
-        return {"answer": REFUSAL_MESSAGE, "sources": retrieved[:3], "debug": debug_payload}
+        return {
+            "answer": REFUSAL_MESSAGE,
+            "sources": retrieved[:3],
+            "debug": debug_payload,
+            "confidence": 0.0,
+        }
 
     if remote_llm_configured():
         answer, mode_debug = answer_with_remote_llm(query, retrieved[:4])
     else:
-        answer, mode_debug = answer_with_local_extractive_mode(query, retrieved[:4])
+        answer, mode_debug = synthesize_local_answer(query, retrieved[:4])
 
     debug_payload.update(mode_debug)
-    return {"answer": answer, "sources": retrieved[:4], "debug": debug_payload}
+    return {
+        "answer": answer,
+        "sources": retrieved[:4],
+        "debug": debug_payload,
+        "confidence": calculate_confidence(retrieved[:4], debug_payload),
+    }
 
 
 def process_uploaded_documents(uploaded_files: list[Any]) -> None:
@@ -600,7 +727,8 @@ def process_uploaded_documents(uploaded_files: list[Any]) -> None:
 
     for uploaded_file in uploaded_files:
         file_bytes = uploaded_file.getvalue()
-        file_path = UPLOAD_DIR / uploaded_file.name
+        digest = hashlib.md5(file_bytes).hexdigest()[:10]
+        file_path = UPLOAD_DIR / f"{digest}_{uploaded_file.name}"
         with open(file_path, "wb") as target_file:
             target_file.write(file_bytes)
 
@@ -611,12 +739,13 @@ def process_uploaded_documents(uploaded_files: list[Any]) -> None:
 
         document = {
             "name": uploaded_file.name,
+            "stored_path": str(file_path),
             "text": raw_text,
             "metadata": metadata,
             "body_text": body_text,
             "body_lines": body_lines,
             "removed_metadata_lines": removed_metadata_lines,
-            "preview": raw_text[:1200],
+            "preview": raw_text[:1400],
         }
         documents.append(document)
 
@@ -632,7 +761,6 @@ def process_uploaded_documents(uploaded_files: list[Any]) -> None:
             )
 
     vectorizer, chunk_matrix = build_index(body_chunks)
-
     st.session_state.documents = documents
     st.session_state.body_chunks = body_chunks
     st.session_state.vectorizer = vectorizer
@@ -643,6 +771,80 @@ def process_uploaded_documents(uploaded_files: list[Any]) -> None:
     st.session_state.last_debug = {}
     st.session_state.last_prompt = ""
     st.session_state.answer_history = []
+
+
+def render_hero() -> None:
+    st.markdown(
+        """
+        <div class="hero-card">
+            <h1>Document Intelligence RAG Assistant</h1>
+            <p>
+                Upload PDF or DOCX files once, keep them indexed in session, and ask grounded
+                follow-up questions with metadata-aware QA, body-only retrieval, and guarded local fallback.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_stats() -> None:
+    total_docs = len(st.session_state.documents)
+    total_chunks = len(st.session_state.body_chunks)
+    total_answers = len(st.session_state.answer_history)
+    mode_label = "Remote LLM" if remote_llm_configured() else "Local Extractive"
+
+    columns = st.columns(4)
+    stats = [
+        ("Indexed Files", str(total_docs)),
+        ("Body Chunks", str(total_chunks)),
+        ("Answers This Session", str(total_answers)),
+        ("Active Mode", mode_label),
+    ]
+    for column, (label, value) in zip(columns, stats):
+        with column:
+            st.markdown(
+                f"""
+                <div class="stat-card">
+                    <div class="stat-label">{label}</div>
+                    <div class="stat-value">{value}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+def render_sidebar() -> None:
+    llm_settings = get_llm_settings()
+    with st.sidebar:
+        st.header("Session Controls")
+        st.checkbox("Debug mode", key="debug_mode")
+        if st.button("Clear chat", use_container_width=True):
+            clear_chat()
+            st.rerun()
+        if st.button("Reset documents", use_container_width=True):
+            reset_documents()
+            st.rerun()
+
+        st.markdown("---")
+        st.subheader("Runtime")
+        if remote_llm_configured():
+            st.markdown(
+                f"<span class='mode-pill'>Remote LLM</span><span class='mode-pill'>{llm_settings['display_host']}</span>",
+                unsafe_allow_html=True,
+            )
+            st.caption(f"Model: {llm_settings['model']}")
+        else:
+            st.markdown("<span class='mode-pill'>Local Extractive</span>", unsafe_allow_html=True)
+            st.caption("No public LLM endpoint configured.")
+
+        st.markdown("---")
+        st.subheader("Indexed Files")
+        if st.session_state.indexed_files:
+            for name in st.session_state.indexed_files:
+                st.write(f"- {name}")
+        else:
+            st.caption("No documents indexed yet.")
 
 
 def render_debug_panels() -> None:
@@ -662,7 +864,7 @@ def render_debug_panels() -> None:
     with st.expander("Body text preview", expanded=False):
         for document in st.session_state.documents:
             st.markdown(f"**{document['name']}**")
-            st.text(document["body_text"][:1200] or "(empty body text)")
+            st.text(document["body_text"][:1400] or "(empty body text)")
 
     with st.expander("Removed metadata lines", expanded=False):
         st.json({document["name"]: document["removed_metadata_lines"] for document in st.session_state.documents})
@@ -670,7 +872,11 @@ def render_debug_panels() -> None:
     with st.expander("Body chunk list", expanded=False):
         st.write(
             [
-                {"doc_name": chunk["doc_name"], "chunk_id": chunk["chunk_id"], "text": chunk["text"]}
+                {
+                    "doc_name": chunk["doc_name"],
+                    "chunk_id": chunk["chunk_id"],
+                    "text": chunk["text"],
+                }
                 for chunk in st.session_state.body_chunks
             ]
         )
@@ -680,6 +886,37 @@ def render_debug_panels() -> None:
             st.json(st.session_state.last_debug)
 
 
+def render_suggested_questions() -> None:
+    if not st.session_state.documents:
+        return
+
+    st.caption("Quick prompts")
+    suggestions = [
+        "Who is the author of the document?",
+        "What is one use of AI in healthcare mentioned in the document?",
+        "What are the challenges of using AI in healthcare?",
+    ]
+    columns = st.columns(len(suggestions))
+    for column, suggestion in zip(columns, suggestions):
+        with column:
+            if st.button(suggestion, use_container_width=True):
+                result = answer_question(suggestion)
+                st.session_state.current_question = suggestion
+                st.session_state.retrieved_sources = result["sources"]
+                st.session_state.last_debug = result["debug"]
+                st.session_state.last_prompt = result["debug"].get("prompt", "")
+                st.session_state.answer_history.append(
+                    {
+                        "question": suggestion,
+                        "answer": result["answer"],
+                        "sources": result["sources"],
+                        "debug": result["debug"],
+                        "confidence": result["confidence"],
+                    }
+                )
+                st.rerun()
+
+
 def render_history() -> None:
     for index, item in enumerate(st.session_state.answer_history, start=1):
         with st.chat_message("user"):
@@ -687,6 +924,10 @@ def render_history() -> None:
 
         with st.chat_message("assistant"):
             st.write(item["answer"])
+            confidence = item.get("confidence", 0.0)
+            mode = item["debug"].get("mode", item["debug"].get("question_type", "unknown"))
+            st.caption(f"Mode: {mode} | Confidence: {confidence:.2f}")
+
             with st.expander("Sources", expanded=False):
                 if not item["sources"]:
                     st.write("No sources shown for metadata-only answer.")
@@ -704,75 +945,64 @@ def render_history() -> None:
                     st.json(item["debug"])
 
 
-st.set_page_config(page_title="Document Intelligence RAG Assistant", layout="wide")
-init_session_state()
-
-st.title("Document Intelligence RAG Assistant")
-st.caption("Upload PDF or DOCX files, index them once, and ask grounded follow-up questions in the same session.")
-
-llm_settings = get_llm_settings()
-if remote_llm_configured():
-    st.info(
-        "Remote LLM mode is enabled. Retrieved body-content chunks will be sent to your public "
-        f"OpenAI-compatible endpoint at `{llm_settings['display_host']}`."
-    )
-else:
-    st.info("Local extractive mode is enabled. Answers will be selected deterministically from document metadata or body content.")
-
-toolbar_left, toolbar_middle, toolbar_right = st.columns([1, 1, 2])
-with toolbar_left:
-    st.checkbox("Debug mode", key="debug_mode")
-with toolbar_middle:
-    if st.button("Clear chat", use_container_width=True):
-        clear_chat()
-        st.rerun()
-with toolbar_right:
-    if st.button("Reset documents", use_container_width=True):
-        reset_documents()
-        st.rerun()
-
-st.subheader("Indexed Files")
-if st.session_state.indexed_files:
-    st.write(st.session_state.indexed_files)
-else:
-    st.caption("No documents indexed yet.")
-
-uploaded_files = st.file_uploader(
-    "Upload PDF or DOCX files",
-    type=["pdf", "docx"],
-    accept_multiple_files=True,
-)
-
-if uploaded_files:
-    process_col, info_col = st.columns([1, 2])
-    with process_col:
-        if st.button("Process Documents", use_container_width=True):
-            with st.spinner("Extracting metadata, separating body text, and building the body-content index..."):
-                process_uploaded_documents(uploaded_files)
-            st.success(
-                f"Indexed {len(st.session_state.body_chunks)} body chunks from "
-                f"{len(st.session_state.documents)} file(s)."
-            )
-    with info_col:
-        st.caption("Reprocess only when your uploaded files change.")
-
-st.subheader("Ask a Question")
-prompt = st.chat_input("Ask about the indexed documents...", disabled=not bool(st.session_state.documents))
-
-if prompt:
-    st.session_state.current_question = prompt
-    result = answer_question(prompt)
+def handle_new_question(question: str) -> None:
+    result = answer_question(question)
+    st.session_state.current_question = question
     st.session_state.retrieved_sources = result["sources"]
     st.session_state.last_debug = result["debug"]
     st.session_state.last_prompt = result["debug"].get("prompt", "")
     st.session_state.answer_history.append(
         {
-            "question": prompt,
+            "question": question,
             "answer": result["answer"],
             "sources": result["sources"],
             "debug": result["debug"],
+            "confidence": result["confidence"],
         }
     )
+
+
+st.set_page_config(page_title="Document Intelligence RAG Assistant", layout="wide")
+st.markdown(APP_CSS, unsafe_allow_html=True)
+init_session_state()
+render_sidebar()
+render_hero()
+render_stats()
+
+upload_col, info_col = st.columns([1.2, 1])
+with upload_col:
+    uploaded_files = st.file_uploader(
+        "Upload PDF or DOCX files",
+        type=["pdf", "docx"],
+        accept_multiple_files=True,
+    )
+with info_col:
+    if remote_llm_configured():
+        llm_settings = get_llm_settings()
+        st.info(
+            "Remote answer generation is enabled. "
+            f"Requests will be sent to `{llm_settings['display_host']}` using `{llm_settings['model']}`."
+        )
+    else:
+        st.info("Local production mode is enabled with metadata-aware QA and guarded body-content retrieval.")
+
+if uploaded_files:
+    if st.button("Process Documents", use_container_width=True):
+        with st.spinner("Extracting metadata, separating body content, and building the retrieval index..."):
+            process_uploaded_documents(uploaded_files)
+        st.success(
+            f"Indexed {len(st.session_state.body_chunks)} body chunks from "
+            f"{len(st.session_state.documents)} file(s)."
+        )
+else:
+    st.caption("Upload files and click `Process Documents` to start a new indexed session.")
+
+st.subheader("Ask a Question")
+render_suggested_questions()
+
+prompt = st.chat_input("Ask about the indexed documents...", disabled=not bool(st.session_state.documents))
+if prompt:
+    handle_new_question(prompt)
 
 if not st.session_state.documents:
     st.caption("Upload and process documents to start asking questions.")
