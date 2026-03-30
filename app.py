@@ -24,6 +24,14 @@ METADATA_LABELS = {
     "published": ["published", "publication date", "publish date", "date"],
 }
 
+METADATA_FIELDS = tuple(METADATA_LABELS.keys())
+
+CONTENT_KEYWORDS = {
+    "uses": ["use", "uses", "application", "applications", "example", "examples"],
+    "challenges": ["challenge", "challenges", "risk", "risks", "problem", "problems"],
+    "benefits": ["help", "helps", "benefit", "benefits", "improve", "improves"],
+}
+
 KNOWN_USE_CASES = [
     "medical imaging",
     "predictive analytics",
@@ -47,7 +55,7 @@ REFUSAL_MESSAGE = "I could not find that in the uploaded documents."
 def init_session_state() -> None:
     defaults: dict[str, Any] = {
         "documents": [],
-        "chunks": [],
+        "body_chunks": [],
         "vectorizer": None,
         "chunk_matrix": None,
         "indexed_files": [],
@@ -64,19 +72,6 @@ def init_session_state() -> None:
             st.session_state[key] = value
 
 
-def reset_documents() -> None:
-    st.session_state.documents = []
-    st.session_state.chunks = []
-    st.session_state.vectorizer = None
-    st.session_state.chunk_matrix = None
-    st.session_state.indexed_files = []
-    st.session_state.document_fingerprints = []
-    st.session_state.retrieved_sources = []
-    st.session_state.last_debug = {}
-    st.session_state.last_prompt = ""
-    clear_chat()
-
-
 def clear_chat() -> None:
     st.session_state.current_question = ""
     st.session_state.answer_history = []
@@ -85,16 +80,45 @@ def clear_chat() -> None:
     st.session_state.last_prompt = ""
 
 
+def reset_documents() -> None:
+    st.session_state.documents = []
+    st.session_state.body_chunks = []
+    st.session_state.vectorizer = None
+    st.session_state.chunk_matrix = None
+    st.session_state.indexed_files = []
+    st.session_state.document_fingerprints = []
+    clear_chat()
+
+
 def normalize_text(text: str) -> str:
-    return re.sub(r"[ \t]+", " ", text.replace("\r", "")).strip()
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def tokenize(text: str) -> list[str]:
     return re.findall(r"[A-Za-z0-9]{2,}", text.lower())
 
 
+def split_sentences(text: str) -> list[str]:
+    normalized = re.sub(r"\s+", " ", text.strip())
+    if not normalized:
+        return []
+    return [part.strip() for part in re.split(r"(?<=[.!?])\s+", normalized) if part.strip()]
+
+
 def extract_text_from_file(file_path: str) -> str:
     return normalize_text(load_document(file_path))
+
+
+def extract_value_after_label(line: str, field: str) -> str | None:
+    for label in METADATA_LABELS[field]:
+        pattern = rf"^{re.escape(label)}\s*:\s*(.+)$"
+        match = re.match(pattern, line.strip(), flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    return None
 
 
 def extract_document_metadata(text: str) -> dict[str, str]:
@@ -102,37 +126,62 @@ def extract_document_metadata(text: str) -> dict[str, str]:
     candidate_lines = [line.strip() for line in text.splitlines() if line.strip()][:60]
 
     for line in candidate_lines:
-        line_lower = line.lower()
-        for field, labels in METADATA_LABELS.items():
-            for label in labels:
-                pattern = rf"^{re.escape(label)}\s*:\s*(.+)$"
-                match = re.match(pattern, line_lower, flags=0)
-                if match:
-                    original_value = line.split(":", 1)[1].strip()
-                    if original_value and field not in metadata:
-                        metadata[field] = original_value
-                        break
-            if field in metadata:
-                continue
+        for field in METADATA_FIELDS:
+            value = extract_value_after_label(line, field)
+            if value and field not in metadata:
+                metadata[field] = value
 
     if "title" not in metadata and candidate_lines:
         first_line = candidate_lines[0]
         if len(first_line) <= 120 and ":" not in first_line:
             metadata["title"] = first_line
 
-    year_match = re.search(r"\b(19|20)\d{2}\b", text[:1500])
-    if "published" not in metadata and year_match:
-        metadata["published"] = year_match.group(0)
+    if "published" not in metadata:
+        year_match = re.search(r"\b(19|20)\d{2}\b", text[:1500])
+        if year_match:
+            metadata["published"] = year_match.group(0)
 
     return metadata
 
 
-def split_sentences(text: str) -> list[str]:
-    normalized = re.sub(r"\s+", " ", text.strip())
-    if not normalized:
-        return []
-    parts = re.split(r"(?<=[.!?])\s+", normalized)
-    return [part.strip() for part in parts if part.strip()]
+def split_document_content(text: str, metadata: dict[str, str]) -> tuple[list[str], str]:
+    lines = [line.strip() for line in text.splitlines()]
+    body_lines: list[str] = []
+    removed_metadata_lines: list[str] = []
+
+    metadata_patterns = []
+    for field in METADATA_FIELDS:
+        for label in METADATA_LABELS[field]:
+            metadata_patterns.append(re.compile(rf"^{re.escape(label)}\s*:\s*.+$", re.IGNORECASE))
+
+    metadata_values = {value.strip().lower() for value in metadata.values() if value.strip()}
+    skipped_leading_title = False
+
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            if body_lines and body_lines[-1] != "":
+                body_lines.append("")
+            continue
+
+        is_metadata_line = any(pattern.match(stripped) for pattern in metadata_patterns)
+        if not is_metadata_line and not skipped_leading_title and index == 0:
+            if metadata.get("title") and stripped.lower() == metadata["title"].strip().lower():
+                is_metadata_line = True
+                skipped_leading_title = True
+
+        if not is_metadata_line and stripped.lower() in metadata_values and len(stripped.split()) <= 8:
+            is_metadata_line = True
+
+        if is_metadata_line:
+            removed_metadata_lines.append(stripped)
+            continue
+
+        body_lines.append(stripped)
+
+    body_text = "\n".join(body_lines)
+    body_text = re.sub(r"\n{3,}", "\n\n", body_text).strip()
+    return removed_metadata_lines, body_text
 
 
 def chunk_text(text: str, chunk_size: int = 700, overlap_sentences: int = 1) -> list[str]:
@@ -185,75 +234,34 @@ def fingerprint_uploaded_files(uploaded_files: list[Any]) -> list[str]:
     return sorted(fingerprints)
 
 
+def classify_question(question: str) -> str:
+    lowered = question.lower()
+    if (
+        "author" in lowered
+        or "written by" in lowered
+        or "who wrote" in lowered
+        or "title" in lowered
+        or "name of the document" in lowered
+        or "published" in lowered
+        or "publication date" in lowered
+        or "when was" in lowered and "document" in lowered
+    ):
+        return "metadata"
+    return "content"
+
+
 def build_index(chunks: list[dict[str, Any]]) -> tuple[TfidfVectorizer | None, Any]:
     if not chunks:
         return None, None
 
-    search_corpus = [chunk["search_text"] for chunk in chunks]
     vectorizer = TfidfVectorizer(
         lowercase=True,
         stop_words="english",
         ngram_range=(1, 2),
         sublinear_tf=True,
     )
-    matrix = vectorizer.fit_transform(search_corpus)
+    matrix = vectorizer.fit_transform([chunk["search_text"] for chunk in chunks])
     return vectorizer, matrix
-
-
-def metadata_question_type(query: str) -> str | None:
-    lowered = query.lower()
-    if "author" in lowered or "written by" in lowered or "who wrote" in lowered:
-        return "author"
-    if "title" in lowered or "name of the document" in lowered:
-        return "title"
-    if "published" in lowered or "publication date" in lowered or "when was" in lowered:
-        return "published"
-    return None
-
-
-def extract_value_after_label(line: str, field: str) -> str | None:
-    labels = METADATA_LABELS[field]
-    for label in labels:
-        pattern = rf"^{re.escape(label)}\s*:\s*(.+)$"
-        match = re.match(pattern, line.strip(), flags=re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-    return None
-
-
-def try_metadata_answer(query: str, documents: list[dict[str, Any]]) -> tuple[str | None, dict[str, Any]]:
-    field = metadata_question_type(query)
-    debug: dict[str, Any] = {"metadata_field": field, "metadata_candidates": []}
-    if not field:
-        return None, debug
-
-    for document in documents:
-        metadata = document["metadata"]
-        if metadata.get(field):
-            debug["metadata_candidates"].append(
-                {
-                    "doc_name": document["name"],
-                    "field": field,
-                    "value": metadata[field],
-                    "source": "document_metadata",
-                }
-            )
-            return metadata[field], debug
-
-        for line in document["lines"][:80]:
-            value = extract_value_after_label(line, field)
-            if value:
-                debug["metadata_candidates"].append(
-                    {
-                        "doc_name": document["name"],
-                        "field": field,
-                        "value": value,
-                        "source": "line_scan",
-                    }
-                )
-                return value, debug
-
-    return None, debug
 
 
 def lexical_overlap_ratio(query: str, text: str) -> float:
@@ -262,6 +270,32 @@ def lexical_overlap_ratio(query: str, text: str) -> float:
     if not query_tokens or not text_tokens:
         return 0.0
     return len(query_tokens & text_tokens) / len(query_tokens)
+
+
+def try_metadata_answer(query: str, documents: list[dict[str, Any]]) -> tuple[str | None, dict[str, Any]]:
+    debug: dict[str, Any] = {"classification": "metadata", "metadata_candidates": []}
+
+    if "author" in query.lower() or "written by" in query.lower() or "who wrote" in query.lower():
+        field = "author"
+    elif "title" in query.lower() or "name of the document" in query.lower():
+        field = "title"
+    else:
+        field = "published"
+
+    debug["field"] = field
+    for document in documents:
+        value = document["metadata"].get(field)
+        if value:
+            debug["metadata_candidates"].append(
+                {
+                    "doc_name": document["name"],
+                    "field": field,
+                    "value": value,
+                }
+            )
+            return value, debug
+
+    return None, debug
 
 
 def retrieve_chunks(
@@ -276,22 +310,28 @@ def retrieve_chunks(
 
     query_vector = vectorizer.transform([query])
     similarities = cosine_similarity(query_vector, chunk_matrix).flatten()
-    field_intent = metadata_question_type(query)
-    query_lower = query.lower()
+    lowered = query.lower()
 
     ranked: list[dict[str, Any]] = []
     for idx, chunk in enumerate(chunks):
         similarity = float(similarities[idx])
         overlap = lexical_overlap_ratio(query, chunk["search_text"])
-        label_boost = 0.0
-        if field_intent:
-            for line in chunk["lines"]:
-                if extract_value_after_label(line, field_intent):
-                    label_boost = 0.35
-                    break
-        short_boost = 0.05 if len(chunk["text"]) < 220 else 0.0
-        keyword_boost = 0.05 if any(term in chunk["text"].lower() for term in tokenize(query_lower)) else 0.0
-        combined = (0.6 * similarity) + (0.25 * overlap) + label_boost + short_boost + keyword_boost
+
+        keyword_boost = 0.0
+        if any(keyword in lowered for keyword in CONTENT_KEYWORDS["uses"]):
+            for phrase in KNOWN_USE_CASES:
+                if phrase in chunk["text"].lower():
+                    keyword_boost += 0.15
+        if any(keyword in lowered for keyword in CONTENT_KEYWORDS["challenges"]):
+            for phrase in KNOWN_CHALLENGES:
+                if phrase in chunk["text"].lower():
+                    keyword_boost += 0.12
+        if any(keyword in lowered for keyword in CONTENT_KEYWORDS["benefits"]):
+            if any(term in chunk["text"].lower() for term in ["help", "improve", "faster", "better", "support"]):
+                keyword_boost += 0.08
+
+        sentence_density = min(len(split_sentences(chunk["text"])), 6) / 10
+        combined = (0.68 * similarity) + (0.22 * overlap) + keyword_boost + sentence_density
 
         ranked.append(
             {
@@ -310,12 +350,12 @@ def extract_candidate_units(chunk_text_value: str) -> list[str]:
     lines = [line.strip() for line in chunk_text_value.splitlines() if line.strip()]
     sentences = split_sentences(chunk_text_value)
     seen: set[str] = set()
-    candidates: list[str] = []
-    for item in lines + sentences:
+    ordered: list[str] = []
+    for item in sentences + lines:
         if item not in seen:
-            candidates.append(item)
+            ordered.append(item)
             seen.add(item)
-    return candidates
+    return ordered
 
 
 def find_phrase_in_text(text: str, phrase: str) -> str | None:
@@ -328,38 +368,31 @@ def find_phrase_in_text(text: str, phrase: str) -> str | None:
 def extract_list_item(text: str) -> str | None:
     patterns = [
         r"(?:such as|including|include|includes|like)\s+([^.;]+)",
-        r"(?:used in|helps with|supports)\s+([^.;]+)",
+        r"(?:used for|used in|helps with|supports)\s+([^.;]+)",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
-        if not match:
-            continue
-        fragment = match.group(1)
-        parts = [part.strip(" .") for part in re.split(r",| and ", fragment) if part.strip()]
-        if parts:
-            return parts[0]
+        if match:
+            parts = [part.strip(" .") for part in re.split(r",| and ", match.group(1)) if part.strip()]
+            if parts:
+                return parts[0]
     return None
 
 
-def extract_answer_span(query: str, candidate: str, field_intent: str | None) -> str:
-    if field_intent:
-        exact_value = extract_value_after_label(candidate, field_intent)
-        if exact_value:
-            return exact_value
+def extract_answer_span(query: str, candidate: str) -> str:
+    lowered = query.lower()
 
-    lowered_query = query.lower()
+    if any(keyword in lowered for keyword in CONTENT_KEYWORDS["uses"]):
+        for phrase in KNOWN_USE_CASES:
+            matched = find_phrase_in_text(candidate, phrase)
+            if matched:
+                return matched
+        list_item = extract_list_item(candidate)
+        if list_item:
+            return list_item
 
-    if "one use" in lowered_query or "use of ai" in lowered_query or "example" in lowered_query:
-        for known_use in KNOWN_USE_CASES:
-            phrase = find_phrase_in_text(candidate, known_use)
-            if phrase:
-                return phrase
-        item = extract_list_item(candidate)
-        if item:
-            return item
-
-    if "challenge" in lowered_query or "risk" in lowered_query or "problem" in lowered_query:
-        found = []
+    if any(keyword in lowered for keyword in CONTENT_KEYWORDS["challenges"]):
+        found: list[str] = []
         for phrase in KNOWN_CHALLENGES:
             matched = find_phrase_in_text(candidate, phrase)
             if matched:
@@ -367,31 +400,29 @@ def extract_answer_span(query: str, candidate: str, field_intent: str | None) ->
         if found:
             return ", ".join(dict.fromkeys(found))
 
-    if ":" in candidate and len(candidate) <= 120:
-        value = candidate.split(":", 1)[1].strip()
-        if value and len(value.split()) <= 14:
-            return value
-
     return candidate.strip()
 
 
-def score_candidate_answer(
-    query: str,
-    candidate: str,
-    parent_chunk: dict[str, Any],
-    field_intent: str | None,
-) -> float:
+def score_candidate_answer(query: str, candidate: str, parent_chunk: dict[str, Any]) -> float:
     overlap = lexical_overlap_ratio(query, candidate)
-    score = (0.55 * parent_chunk["combined_score"]) + (0.35 * overlap)
+    score = (0.62 * parent_chunk["combined_score"]) + (0.28 * overlap)
 
-    if field_intent and extract_value_after_label(candidate, field_intent):
-        score += 0.45
-    if ":" in candidate and len(candidate) <= 120:
-        score += 0.15
-    if len(candidate.split()) <= 2:
-        score -= 0.2
-    if len(candidate) > 260:
+    lowered = query.lower()
+    candidate_lower = candidate.lower()
+
+    if any(keyword in lowered for keyword in CONTENT_KEYWORDS["uses"]) and any(
+        phrase in candidate_lower for phrase in KNOWN_USE_CASES
+    ):
+        score += 0.25
+    if any(keyword in lowered for keyword in CONTENT_KEYWORDS["challenges"]) and any(
+        phrase in candidate_lower for phrase in KNOWN_CHALLENGES
+    ):
+        score += 0.22
+    if len(candidate) > 240:
         score -= 0.18
+    if len(candidate.split()) < 3:
+        score -= 0.15
+
     return round(score, 4)
 
 
@@ -399,10 +430,8 @@ def answer_with_local_extractive_mode(
     query: str,
     retrieved_chunks: list[dict[str, Any]],
 ) -> tuple[str, dict[str, Any]]:
-    field_intent = metadata_question_type(query)
     debug: dict[str, Any] = {
         "mode": "local-extractive",
-        "field_intent": field_intent,
         "selected_span": None,
         "candidate_answers": [],
     }
@@ -411,16 +440,15 @@ def answer_with_local_extractive_mode(
         debug["refusal_reason"] = "no_retrieved_chunks"
         return REFUSAL_MESSAGE, debug
 
-    top_score = retrieved_chunks[0]["combined_score"]
-    if top_score < 0.14:
-        debug["refusal_reason"] = f"low_retrieval_score:{top_score}"
+    if retrieved_chunks[0]["combined_score"] < 0.18:
+        debug["refusal_reason"] = f"low_retrieval_score:{retrieved_chunks[0]['combined_score']}"
         return REFUSAL_MESSAGE, debug
 
     candidates: list[dict[str, Any]] = []
     for chunk in retrieved_chunks:
         for candidate in extract_candidate_units(chunk["text"]):
-            answer_span = extract_answer_span(query, candidate, field_intent)
-            candidate_score = score_candidate_answer(query, candidate, chunk, field_intent)
+            answer_span = extract_answer_span(query, candidate)
+            candidate_score = score_candidate_answer(query, candidate, chunk)
             candidates.append(
                 {
                     "doc_name": chunk["doc_name"],
@@ -434,7 +462,7 @@ def answer_with_local_extractive_mode(
     candidates.sort(key=lambda item: item["score"], reverse=True)
     debug["candidate_answers"] = candidates[:8]
 
-    if not candidates or candidates[0]["score"] < 0.16:
+    if not candidates or candidates[0]["score"] < 0.2:
         debug["refusal_reason"] = "weak_candidate_score"
         return REFUSAL_MESSAGE, debug
 
@@ -463,41 +491,24 @@ def remote_llm_configured() -> bool:
     return bool(get_llm_settings()["base_url"])
 
 
-def build_remote_prompt(
-    query: str,
-    retrieved_chunks: list[dict[str, Any]],
-    documents: list[dict[str, Any]],
-) -> str:
-    metadata_lines = []
-    for document in documents:
-        if document["metadata"]:
-            metadata_lines.append(f"{document['name']}: {document['metadata']}")
-
+def build_remote_prompt(query: str, retrieved_chunks: list[dict[str, Any]]) -> str:
     sources = "\n\n".join(
         f"[Source {index}] {chunk['doc_name']} (score={chunk['combined_score']})\n{chunk['text']}"
         for index, chunk in enumerate(retrieved_chunks, start=1)
     )
-
-    metadata_block = "\n".join(metadata_lines) if metadata_lines else "No metadata extracted."
     return (
         "You are a careful document question-answering assistant.\n"
-        "Answer using only the provided metadata and retrieved document sources.\n"
+        "Answer using only the provided retrieved sources.\n"
         "If the answer is not present, reply exactly: I could not find that in the uploaded documents.\n"
-        "For direct metadata questions, return only the exact value.\n"
-        "Be concise and include source numbers when helpful.\n\n"
-        f"Metadata:\n{metadata_block}\n\n"
+        "For direct factual questions, answer concisely.\n\n"
         f"Retrieved sources:\n{sources}\n\n"
         f"Question: {query}"
     )
 
 
-def answer_with_remote_llm(
-    query: str,
-    retrieved_chunks: list[dict[str, Any]],
-    documents: list[dict[str, Any]],
-) -> tuple[str, dict[str, Any]]:
+def answer_with_remote_llm(query: str, retrieved_chunks: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
     settings = get_llm_settings()
-    prompt = build_remote_prompt(query, retrieved_chunks, documents)
+    prompt = build_remote_prompt(query, retrieved_chunks)
     debug: dict[str, Any] = {
         "mode": "remote-llm",
         "prompt": prompt,
@@ -524,7 +535,7 @@ def answer_with_remote_llm(
                 {
                     "role": "system",
                     "content": (
-                        "Answer only from the supplied document context. "
+                        "Answer only from the supplied document body context. "
                         "If the answer is missing, say you could not find it in the uploaded documents."
                     ),
                 },
@@ -543,48 +554,40 @@ def answer_with_remote_llm(
 
 
 def answer_question(query: str) -> dict[str, Any]:
-    documents = st.session_state.documents
-    chunks = st.session_state.chunks
-    vectorizer = st.session_state.vectorizer
-    chunk_matrix = st.session_state.chunk_matrix
+    question_type = classify_question(query)
+    debug_payload: dict[str, Any] = {"question_type": question_type}
 
-    metadata_answer, metadata_debug = try_metadata_answer(query, documents)
-    retrieved = retrieve_chunks(query, vectorizer, chunk_matrix, chunks, top_k=5)
+    if question_type == "metadata":
+        metadata_answer, metadata_debug = try_metadata_answer(query, st.session_state.documents)
+        debug_payload["metadata_debug"] = metadata_debug
+        if metadata_answer:
+            debug_payload["mode"] = "metadata"
+            debug_payload["selected_span"] = metadata_answer
+            return {"answer": metadata_answer, "sources": [], "debug": debug_payload}
+        debug_payload["mode"] = "metadata-refusal"
+        return {"answer": REFUSAL_MESSAGE, "sources": [], "debug": debug_payload}
 
-    debug_payload: dict[str, Any] = {
-        "metadata_debug": metadata_debug,
-        "retrieved_chunks": retrieved,
-    }
+    retrieved = retrieve_chunks(
+        query=query,
+        vectorizer=st.session_state.vectorizer,
+        chunk_matrix=st.session_state.chunk_matrix,
+        chunks=st.session_state.body_chunks,
+        top_k=5,
+    )
+    debug_payload["retrieved_chunks"] = retrieved
 
-    if metadata_answer:
-        debug_payload["mode"] = "metadata"
-        debug_payload["selected_span"] = metadata_answer
-        return {
-            "answer": metadata_answer,
-            "sources": retrieved[:3],
-            "debug": debug_payload,
-        }
-
-    if not retrieved or retrieved[0]["combined_score"] < 0.14:
-        debug_payload["mode"] = "refusal"
+    if not retrieved or retrieved[0]["combined_score"] < 0.18:
+        debug_payload["mode"] = "content-refusal"
         debug_payload["refusal_reason"] = "retrieval_below_threshold"
-        return {
-            "answer": REFUSAL_MESSAGE,
-            "sources": retrieved[:3],
-            "debug": debug_payload,
-        }
+        return {"answer": REFUSAL_MESSAGE, "sources": retrieved[:3], "debug": debug_payload}
 
     if remote_llm_configured():
-        answer, mode_debug = answer_with_remote_llm(query, retrieved[:4], documents)
+        answer, mode_debug = answer_with_remote_llm(query, retrieved[:4])
     else:
         answer, mode_debug = answer_with_local_extractive_mode(query, retrieved[:4])
 
     debug_payload.update(mode_debug)
-    return {
-        "answer": answer,
-        "sources": retrieved[:4],
-        "debug": debug_payload,
-    }
+    return {"answer": answer, "sources": retrieved[:4], "debug": debug_payload}
 
 
 def process_uploaded_documents(uploaded_files: list[Any]) -> None:
@@ -593,7 +596,7 @@ def process_uploaded_documents(uploaded_files: list[Any]) -> None:
         return
 
     documents: list[dict[str, Any]] = []
-    chunks: list[dict[str, Any]] = []
+    body_chunks: list[dict[str, Any]] = []
 
     for uploaded_file in uploaded_files:
         file_bytes = uploaded_file.getvalue()
@@ -603,35 +606,35 @@ def process_uploaded_documents(uploaded_files: list[Any]) -> None:
 
         raw_text = extract_text_from_file(str(file_path))
         metadata = extract_document_metadata(raw_text)
-        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        removed_metadata_lines, body_text = split_document_content(raw_text, metadata)
+        body_lines = [line.strip() for line in body_text.splitlines() if line.strip()]
 
         document = {
             "name": uploaded_file.name,
             "text": raw_text,
             "metadata": metadata,
-            "lines": lines,
+            "body_text": body_text,
+            "body_lines": body_lines,
+            "removed_metadata_lines": removed_metadata_lines,
             "preview": raw_text[:1200],
         }
         documents.append(document)
 
-        document_chunks = chunk_text(raw_text)
-        for chunk_index, chunk_value in enumerate(document_chunks):
-            metadata_prefix = " ".join(f"{key}: {value}" for key, value in metadata.items())
-            search_text = f"{metadata_prefix} {chunk_value}".strip()
-            chunks.append(
+        for chunk_index, chunk_value in enumerate(chunk_text(body_text)):
+            body_chunks.append(
                 {
                     "doc_name": uploaded_file.name,
                     "chunk_id": chunk_index,
                     "text": chunk_value,
                     "lines": [line.strip() for line in chunk_value.splitlines() if line.strip()],
-                    "search_text": search_text,
+                    "search_text": chunk_value,
                 }
             )
 
-    vectorizer, chunk_matrix = build_index(chunks)
+    vectorizer, chunk_matrix = build_index(body_chunks)
 
     st.session_state.documents = documents
-    st.session_state.chunks = chunks
+    st.session_state.body_chunks = body_chunks
     st.session_state.vectorizer = vectorizer
     st.session_state.chunk_matrix = chunk_matrix
     st.session_state.indexed_files = [document["name"] for document in documents]
@@ -654,18 +657,21 @@ def render_debug_panels() -> None:
             st.text(document["preview"] or "(empty)")
 
     with st.expander("Extracted metadata", expanded=False):
-        metadata_map = {document["name"]: document["metadata"] for document in st.session_state.documents}
-        st.json(metadata_map)
+        st.json({document["name"]: document["metadata"] for document in st.session_state.documents})
 
-    with st.expander("Chunk list", expanded=False):
+    with st.expander("Body text preview", expanded=False):
+        for document in st.session_state.documents:
+            st.markdown(f"**{document['name']}**")
+            st.text(document["body_text"][:1200] or "(empty body text)")
+
+    with st.expander("Removed metadata lines", expanded=False):
+        st.json({document["name"]: document["removed_metadata_lines"] for document in st.session_state.documents})
+
+    with st.expander("Body chunk list", expanded=False):
         st.write(
             [
-                {
-                    "doc_name": chunk["doc_name"],
-                    "chunk_id": chunk["chunk_id"],
-                    "text": chunk["text"],
-                }
-                for chunk in st.session_state.chunks
+                {"doc_name": chunk["doc_name"], "chunk_id": chunk["chunk_id"], "text": chunk["text"]}
+                for chunk in st.session_state.body_chunks
             ]
         )
 
@@ -683,7 +689,7 @@ def render_history() -> None:
             st.write(item["answer"])
             with st.expander("Sources", expanded=False):
                 if not item["sources"]:
-                    st.write("No sources retrieved.")
+                    st.write("No sources shown for metadata-only answer.")
                 else:
                     for source_index, source in enumerate(item["sources"], start=1):
                         st.markdown(
@@ -707,11 +713,11 @@ st.caption("Upload PDF or DOCX files, index them once, and ask grounded follow-u
 llm_settings = get_llm_settings()
 if remote_llm_configured():
     st.info(
-        "Remote LLM mode is enabled. Retrieved document chunks will be sent to your public "
+        "Remote LLM mode is enabled. Retrieved body-content chunks will be sent to your public "
         f"OpenAI-compatible endpoint at `{llm_settings['display_host']}`."
     )
 else:
-    st.info("Local extractive mode is enabled. Answers will be selected deterministically from the uploaded documents.")
+    st.info("Local extractive mode is enabled. Answers will be selected deterministically from document metadata or body content.")
 
 toolbar_left, toolbar_middle, toolbar_right = st.columns([1, 1, 2])
 with toolbar_left:
@@ -741,18 +747,17 @@ if uploaded_files:
     process_col, info_col = st.columns([1, 2])
     with process_col:
         if st.button("Process Documents", use_container_width=True):
-            with st.spinner("Extracting text, metadata, and retrieval chunks..."):
+            with st.spinner("Extracting metadata, separating body text, and building the body-content index..."):
                 process_uploaded_documents(uploaded_files)
-            st.success(f"Indexed {len(st.session_state.chunks)} chunks from {len(st.session_state.documents)} file(s).")
+            st.success(
+                f"Indexed {len(st.session_state.body_chunks)} body chunks from "
+                f"{len(st.session_state.documents)} file(s)."
+            )
     with info_col:
         st.caption("Reprocess only when your uploaded files change.")
 
 st.subheader("Ask a Question")
-
-prompt = st.chat_input(
-    "Ask about the indexed documents...",
-    disabled=not bool(st.session_state.chunks),
-)
+prompt = st.chat_input("Ask about the indexed documents...", disabled=not bool(st.session_state.documents))
 
 if prompt:
     st.session_state.current_question = prompt
@@ -769,7 +774,7 @@ if prompt:
         }
     )
 
-if not st.session_state.chunks:
+if not st.session_state.documents:
     st.caption("Upload and process documents to start asking questions.")
 else:
     render_history()
