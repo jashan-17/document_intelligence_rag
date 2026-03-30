@@ -1,24 +1,32 @@
-import faiss
-import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 
-class FAISSVectorStore:
-    def __init__(self, dimension: int):
-        self.index = faiss.IndexFlatL2(dimension)
+class LocalVectorStore:
+    def __init__(self):
+        self.vectorizer = TfidfVectorizer(stop_words="english")
         self.text_chunks = []
+        self.chunk_matrix = None
 
-    def add_embeddings(self, embeddings: list[list[float]], chunks: list[str]) -> None:
-        vectors = np.array(embeddings, dtype="float32")
-        self.index.add(vectors)
-        self.text_chunks.extend(chunks)
+    def add_documents(self, chunks: list[str]) -> None:
+        self.text_chunks = chunks[:]
+        self.chunk_matrix = self.vectorizer.fit_transform(self.text_chunks)
 
-    def search(self, query_embedding: list[float], top_k: int = 3) -> list[tuple[str, float]]:
-        query_vector = np.array([query_embedding], dtype="float32")
-        distances, indices = self.index.search(query_vector, top_k)
+    def search(self, query: str, top_k: int = 3) -> list[tuple[str, float]]:
+        if not self.text_chunks or self.chunk_matrix is None:
+            return []
+
+        query_vector = self.vectorizer.transform([query])
+        scores = cosine_similarity(query_vector, self.chunk_matrix).flatten()
+        ranked_indices = scores.argsort()[::-1][:top_k]
 
         results = []
-        for idx, dist in zip(indices[0], distances[0]):
-            if 0 <= idx < len(self.text_chunks):
-                results.append((self.text_chunks[idx], float(dist)))
+        for idx in ranked_indices:
+            if scores[idx] > 0:
+                results.append((self.text_chunks[idx], float(scores[idx])))
+
+        if not results and self.text_chunks:
+            # Fallback so the app can still show a source even for vague questions.
+            results.append((self.text_chunks[0], 0.0))
 
         return results

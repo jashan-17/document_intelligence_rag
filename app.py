@@ -1,11 +1,9 @@
 from pathlib import Path
-import os
 import streamlit as st
 
 from src.loader import load_document
 from src.chunker import chunk_text
-from src.embedder import get_embeddings
-from src.vector_store import FAISSVectorStore
+from src.vector_store import LocalVectorStore
 from src.retriever import retrieve_relevant_chunks
 from src.generator import generate_answer
 
@@ -16,11 +14,10 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 st.set_page_config(page_title="Document Intelligence RAG Assistant", layout="wide")
 st.title("Document Intelligence RAG Assistant")
 st.caption("Upload PDF or DOCX files, then ask questions grounded in those documents.")
-
-if os.getenv("OPENAI_API_KEY"):
-    st.info("Running with OpenAI-backed embeddings and answer generation for cloud deployment.")
-else:
-    st.info("Running with local Ollama endpoints. Make sure Ollama is available at localhost:11434.")
+st.info(
+    "This app uses free in-app retrieval and extractive answering over uploaded documents. "
+    "It does not require paid APIs or live external model calls."
+)
 
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
@@ -53,12 +50,9 @@ if uploaded_files:
                     st.session_state.indexed_files.append(uploaded_file.name)
 
         if all_chunks:
-            with st.spinner("Generating embeddings and building vector store..."):
-                embeddings = get_embeddings(all_chunks)
-                dimension = len(embeddings[0])
-
-                vector_store = FAISSVectorStore(dimension)
-                vector_store.add_embeddings(embeddings, all_chunks)
+            with st.spinner("Building searchable document index..."):
+                vector_store = LocalVectorStore()
+                vector_store.add_documents(all_chunks)
 
                 st.session_state.vector_store = vector_store
 

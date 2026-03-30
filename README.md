@@ -1,6 +1,6 @@
 # Document RAG
 
-Document RAG is a Retrieval-Augmented Generation project for asking questions over uploaded PDF and DOCX files. It uses a Streamlit frontend, FAISS for vector search, and supports both local Ollama and cloud-friendly OpenAI-backed inference.
+Document RAG is a free Retrieval-Augmented Generation style project for asking questions over uploaded PDF and DOCX files. It uses a Streamlit frontend, TF-IDF retrieval, and extractive answer generation that runs directly inside the app without paid APIs.
 
 ## Overview
 
@@ -15,8 +15,7 @@ It allows a user to:
 - upload one or more documents
 - extract text from PDF and DOCX files
 - split the text into overlapping chunks
-- generate embeddings for those chunks
-- store embeddings in a FAISS vector index
+- build a searchable TF-IDF index over those chunks
 - retrieve the most relevant chunks for a question
 - generate a grounded answer using retrieved context
 
@@ -30,7 +29,6 @@ document_intelligence_rag/
 ├── data/
 ├── src/
 │   ├── chunker.py
-│   ├── embedder.py
 │   ├── generator.py
 │   ├── loader.py
 │   ├── retriever.py
@@ -59,29 +57,21 @@ Documents are split into overlapping text chunks to improve retrieval quality.
 
 Source: [chunker.py](/mnt/c/Users/HP/Desktop/Portfolio/document_intelligence_rag/src/chunker.py)
 
-### 3. Embeddings
+### 3. Retrieval Index
 
-Each chunk is embedded using one of two providers:
-
-- OpenAI when `OPENAI_API_KEY` is set
-- Ollama at `http://localhost:11434/api/embeddings` otherwise
-
-Source: [embedder.py](/mnt/c/Users/HP/Desktop/Portfolio/document_intelligence_rag/src/embedder.py)
-
-### 4. Vector Search
-
-Embeddings are stored in an in-memory FAISS `IndexFlatL2` vector index for similarity search.
+Chunks are indexed using TF-IDF so the app can retrieve relevant sections without calling external embedding APIs.
 
 Source: [vector_store.py](/mnt/c/Users/HP/Desktop/Portfolio/document_intelligence_rag/src/vector_store.py)
 
+### 4. Search
+
+Queries are scored against indexed chunks using cosine similarity over TF-IDF vectors.
+
+Source: [retriever.py](/mnt/c/Users/HP/Desktop/Portfolio/document_intelligence_rag/src/retriever.py)
+
 ### 5. Answer Generation
 
-Retrieved chunks are combined into a prompt and sent to:
-
-- OpenAI when `OPENAI_API_KEY` is set
-- Ollama at `http://localhost:11434/api/generate` otherwise
-
-The generator instructs the model to answer only from the supplied context and cite source numbers.
+The app generates answers extractively by selecting the most relevant sentences from the retrieved chunks and citing the matching source numbers.
 
 Source: [generator.py](/mnt/c/Users/HP/Desktop/Portfolio/document_intelligence_rag/src/generator.py)
 
@@ -104,54 +94,27 @@ This project depends on:
 
 - Python
 - Streamlit
-- FAISS
+- scikit-learn
 - PyMuPDF
 - python-docx
-- requests
-- OpenAI or Ollama
+- built-in extractive answer generation
 
 There is an existing `requirements.txt` in the app folder:
 
 [requirements.txt](/mnt/c/Users/HP/Desktop/Portfolio/document_intelligence_rag/requirements.txt)
 
-The dependency list has been intentionally kept minimal for deployment. Heavy local-only packages such as `torch` and `sentence-transformers` were removed because they were not used by the current app code and caused Streamlit Cloud installation failures.
+The dependency list is intentionally lightweight so the app can deploy cleanly on Streamlit Community Cloud without paid APIs or heavyweight ML packages.
 
-## Inference Setup
+## Deployment
 
-### Option 1. Streamlit Community Cloud with OpenAI
+This version is designed to deploy directly on Streamlit Community Cloud without extra secrets or external model services.
 
-For Streamlit Community Cloud, add these secrets in the app settings:
+Recommended configuration:
 
-```toml
-OPENAI_API_KEY="your_key_here"
-OPENAI_EMBED_MODEL="text-embedding-3-small"
-OPENAI_CHAT_MODEL="gpt-4o-mini"
-```
-
-This is the recommended deployment setup because Streamlit Community Cloud cannot use your local Ollama instance at `localhost`.
-
-Important:
-
-- hosted Streamlit apps cannot call `http://localhost:11434` on your machine
-- if `OPENAI_API_KEY` is not set in Streamlit Cloud, the app will fall back to Ollama and fail in hosted deployment
-- local development can still use Ollama without any OpenAI key
-
-### Option 2. Local Ollama Setup
-
-This app depends on a local Ollama server running at:
-
-```text
-http://localhost:11434
-```
-
-You should have these models available locally:
-
-```bash
-ollama pull nomic-embed-text
-ollama pull phi3:mini
-```
-
-Then start Ollama before launching the app.
+- Repository: `document_intelligence_rag`
+- Branch: `main`
+- Main file path: `app.py`
+- Secrets: none required
 
 ## Run the App
 
@@ -168,33 +131,15 @@ If you are not using a project virtual environment, you can run:
 streamlit run app.py
 ```
 
-## Deployment Notes
-
-This app supports two runtime modes:
-
-1. Local mode
-   Uses Ollama for embeddings and answer generation.
-2. Cloud mode
-   Uses OpenAI for embeddings and answer generation through Streamlit secrets.
-
-Recommended Streamlit Community Cloud configuration:
-
-- Repository: `document_intelligence_rag`
-- Branch: `main`
-- Main file path: `app.py`
-- Secrets: `OPENAI_API_KEY`, optionally `OPENAI_EMBED_MODEL` and `OPENAI_CHAT_MODEL`
-
-If your deployment fails during package installation, make sure the current lightweight [requirements.txt](/mnt/c/Users/HP/Desktop/Portfolio/document_intelligence_rag/requirements.txt#L1) has been pushed to GitHub.
-
 ## End-to-End Flow
 
 1. Upload one or more PDF or DOCX files.
 2. Click `Process Documents`.
 3. The app extracts and chunks the text.
-4. Chunk embeddings are created with OpenAI or Ollama.
-5. Embeddings are stored in FAISS.
+4. Chunks are indexed with TF-IDF.
+5. The app searches the most relevant chunks for your question.
 6. Ask a question in the input box.
-7. The app retrieves relevant chunks and generates a final answer.
+7. The app retrieves relevant chunks and generates an extractive final answer.
 8. Retrieved source chunks are shown below the answer.
 
 ## Notes
@@ -202,8 +147,8 @@ If your deployment fails during package installation, make sure the current ligh
 - The vector store is kept in Streamlit session state, so indexing is session-based.
 - Uploaded files are written to `data/uploads`.
 - `utils.py` currently exists but is empty.
-- The app now supports OpenAI for hosted deployment and Ollama for local use.
-- Streamlit Community Cloud should use OpenAI-backed inference, not localhost Ollama.
+- The app does not depend on OpenAI, Ollama, or any paid hosted model API.
+- This is a retrieval-plus-extraction workflow rather than a full generative LLM pipeline.
 
 ## Security Note
 
@@ -217,7 +162,7 @@ There is a `.env` file in the project folder. If it contains a real API key or s
 - Add citation spans instead of whole-chunk citations
 - Support more document types
 - Add conversation history and follow-up questions
-- Add provider selection from the UI
+- Add stronger ranking heuristics for answer sentence selection
 
 ## Summary
 
