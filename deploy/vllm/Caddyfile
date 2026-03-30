@@ -1,0 +1,5 @@
+{$DOMAIN} {
+    encode gzip
+    tls {$EMAIL}
+    reverse_proxy vllm:8000
+}

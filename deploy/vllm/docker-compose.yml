@@ -1,0 +1,44 @@
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: document-rag-vllm
+    restart: unless-stopped
+    command:
+      - --model
+      - ${VLLM_MODEL:-Qwen/Qwen2.5-7B-Instruct}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --api-key
+      - ${VLLM_API_KEY}
+      - --max-model-len
+      - ${VLLM_MAX_MODEL_LEN:-8192}
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2
+    container_name: document-rag-caddy
+    restart: unless-stopped
+    depends_on:
+      - vllm
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+      EMAIL: ${EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  hf-cache:
+  caddy-data:
+  caddy-config:

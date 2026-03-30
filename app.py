@@ -1,11 +1,12 @@
 from pathlib import Path
+import os
 import streamlit as st
 
 from src.loader import load_document
 from src.chunker import chunk_text
 from src.vector_store import LocalVectorStore
 from src.retriever import retrieve_relevant_chunks
-from src.generator import generate_answer
+from src.generator import check_remote_llm_health, generate_answer, get_llm_settings, remote_llm_configured
 
 
 UPLOAD_DIR = Path("data/uploads")
@@ -14,10 +15,40 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 st.set_page_config(page_title="Document Intelligence RAG Assistant", layout="wide")
 st.title("Document Intelligence RAG Assistant")
 st.caption("Upload PDF or DOCX files, then ask questions grounded in those documents.")
-st.info(
-    "This app uses free in-app retrieval and extractive answering over uploaded documents. "
-    "It does not require paid APIs or live external model calls."
-)
+
+llm_settings = get_llm_settings()
+
+if os.getenv("GEMINI_API_KEY"):
+    st.warning(
+        "Deprecated Gemini setting detected. This app now uses a public OpenAI-compatible LLM "
+        "endpoint configured with LLM_BASE_URL."
+    )
+elif remote_llm_configured():
+    st.info(
+        "Using a public LLM server for answer generation with local document retrieval. "
+        "The endpoint is configured through Streamlit secrets or environment variables."
+    )
+else:
+    st.info(
+        "No public LLM endpoint detected. The app will use free local extractive answering instead of an LLM."
+    )
+
+with st.expander("Runtime configuration", expanded=False):
+    st.write(
+        {
+            "mode": "remote-llm" if remote_llm_configured() else "extractive-fallback",
+            "llm_host": llm_settings["display_host"] or "not configured",
+            "llm_model": llm_settings["model"],
+        }
+    )
+    if remote_llm_configured():
+        if st.button("Test public LLM connection"):
+            with st.spinner("Checking remote model server..."):
+                healthy, message = check_remote_llm_health()
+            if healthy:
+                st.success(message)
+            else:
+                st.error(message)
 
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
