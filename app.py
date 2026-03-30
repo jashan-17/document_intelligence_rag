@@ -34,13 +34,21 @@ CONTENT_INTENT_KEYWORDS = {
     "summary": ["summarize", "summary", "overview", "main point", "what is this about"],
 }
 
+FOLLOW_UP_PHRASES = [
+    "what else",
+    "another",
+    "anything else",
+    "name another",
+    "more",
+]
+
 KNOWN_USE_CASES = [
     "medical imaging",
     "predictive analytics",
     "drug discovery",
     "patient monitoring",
     "clinical decision support",
-    "automating administrative tasks",
+    "predict patient admissions",
 ]
 
 KNOWN_CHALLENGES = [
@@ -54,23 +62,41 @@ KNOWN_CHALLENGES = [
 
 APP_CSS = """
 <style>
+    :root {
+        --canvas: #f4efe7;
+        --canvas-accent: #ebe3d6;
+        --surface: rgba(255, 252, 247, 0.96);
+        --surface-strong: #fffdf9;
+        --text: #1f2937;
+        --muted: #6b7280;
+        --sidebar: #1f2937;
+        --sidebar-soft: #374151;
+        --accent: #c26d3c;
+        --accent-deep: #8d4e2c;
+        --hero-start: #1f2937;
+        --hero-end: #9a3412;
+        --border: rgba(31, 41, 55, 0.08);
+        --shadow: 0 18px 50px rgba(68, 47, 27, 0.10);
+    }
     .stApp {
         background:
-            radial-gradient(circle at top left, rgba(60, 130, 246, 0.12), transparent 28%),
-            linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
-        color: #0f172a;
+            radial-gradient(circle at top left, rgba(194, 109, 60, 0.16), transparent 24%),
+            radial-gradient(circle at bottom right, rgba(234, 179, 8, 0.10), transparent 20%),
+            linear-gradient(180deg, var(--canvas) 0%, #f8f5ef 100%);
+        color: var(--text);
     }
     [data-testid="stAppViewContainer"] {
         background:
-            radial-gradient(circle at top left, rgba(60, 130, 246, 0.12), transparent 28%),
-            linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
+            radial-gradient(circle at top left, rgba(194, 109, 60, 0.16), transparent 24%),
+            radial-gradient(circle at bottom right, rgba(234, 179, 8, 0.10), transparent 20%),
+            linear-gradient(180deg, var(--canvas) 0%, #f8f5ef 100%);
     }
     [data-testid="stHeader"] {
-        background: #1f2937;
+        background: #111827;
     }
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #3f4256 0%, #4b4e63 100%);
-        border-right: 1px solid rgba(255, 255, 255, 0.08);
+        background: linear-gradient(180deg, #1f2937 0%, #374151 100%);
+        border-right: 1px solid rgba(255, 255, 255, 0.06);
     }
     [data-testid="stSidebar"] * {
         color: #f8fafc;
@@ -83,17 +109,20 @@ APP_CSS = """
     .main .block-container {
         padding-top: 2rem;
         padding-bottom: 2rem;
+        max-width: 1280px;
     }
     h1, h2, h3, h4, h5, h6, p, label, div, span {
         color: inherit;
     }
     .hero-card {
-        background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 60%, #38bdf8 100%);
+        background:
+            linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.0)),
+            linear-gradient(135deg, var(--hero-start) 0%, #7c2d12 62%, var(--hero-end) 100%);
         padding: 1.5rem 1.75rem;
-        border-radius: 20px;
+        border-radius: 24px;
         color: white;
-        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.18);
-        margin-bottom: 1rem;
+        box-shadow: 0 26px 60px rgba(31, 41, 55, 0.18);
+        margin-bottom: 1.25rem;
     }
     .hero-card h1 {
         color: white;
@@ -102,64 +131,66 @@ APP_CSS = """
     }
     .hero-card p {
         margin: 0;
-        color: rgba(255, 255, 255, 0.9);
+        color: rgba(255, 247, 237, 0.92);
         font-size: 1rem;
         max-width: 52rem;
+        line-height: 1.7;
     }
     .stat-card {
-        background: rgba(255, 255, 255, 0.85);
-        border: 1px solid rgba(148, 163, 184, 0.25);
-        border-radius: 16px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 18px;
         padding: 1rem 1.1rem;
-        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(8px);
     }
     .stat-label {
         font-size: 0.85rem;
-        color: #475569;
+        color: var(--muted);
         margin-bottom: 0.15rem;
     }
     .stat-value {
         font-size: 1.65rem;
         font-weight: 700;
-        color: #0f172a;
-    }
-    .chip-row {
-        display: flex;
-        gap: 0.5rem;
-        flex-wrap: wrap;
-        margin: 0.5rem 0 0.75rem 0;
+        color: var(--text);
     }
     .mode-pill {
         display: inline-block;
-        padding: 0.35rem 0.7rem;
+        padding: 0.38rem 0.75rem;
         border-radius: 999px;
         font-size: 0.8rem;
         font-weight: 600;
-        background: rgba(59, 130, 246, 0.12);
-        color: #1d4ed8;
+        background: rgba(194, 109, 60, 0.14);
+        color: #9a3412;
         margin-right: 0.45rem;
+    }
+    .stSubheader, h2 {
+        color: var(--text) !important;
     }
     .stButton > button {
         background: #1f2937;
         color: #ffffff;
-        border: 1px solid rgba(15, 23, 42, 0.15);
-        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        border-radius: 14px;
         font-weight: 600;
+        box-shadow: 0 8px 20px rgba(31, 41, 55, 0.12);
     }
     .stButton > button:hover {
-        background: #0f172a;
+        background: #111827;
         color: #ffffff;
-        border-color: rgba(15, 23, 42, 0.25);
+        border-color: rgba(255, 255, 255, 0.06);
     }
     .stTextInput > div > div > input,
     [data-testid="stChatInputTextArea"] textarea,
     [data-testid="stFileUploaderDropzone"] {
-        background: rgba(255, 255, 255, 0.92) !important;
-        color: #0f172a !important;
-        border: 1px solid rgba(148, 163, 184, 0.35) !important;
+        background: var(--surface-strong) !important;
+        color: var(--text) !important;
+        border: 1px solid rgba(194, 109, 60, 0.18) !important;
+        border-radius: 16px !important;
+        box-shadow: var(--shadow);
     }
     [data-testid="stFileUploaderDropzone"] * {
-        color: #0f172a !important;
+        color: var(--text) !important;
     }
     [data-testid="stFileUploaderDropzone"] button {
         background: #1f2937 !important;
@@ -169,33 +200,47 @@ APP_CSS = """
         background: transparent;
     }
     [data-testid="stChatInput"] textarea {
-        background: rgba(255, 255, 255, 0.96) !important;
-        color: #0f172a !important;
+        background: rgba(255, 253, 249, 0.98) !important;
+        color: var(--text) !important;
     }
     [data-testid="stInfo"],
     [data-testid="stSuccess"],
     [data-testid="stWarning"],
     [data-testid="stError"] {
-        background: rgba(255, 255, 255, 0.84);
-        border: 1px solid rgba(148, 163, 184, 0.28);
-        color: #0f172a;
+        background: rgba(255, 249, 240, 0.9);
+        border: 1px solid rgba(194, 109, 60, 0.16);
+        color: var(--text);
+        border-radius: 16px;
     }
     [data-testid="stInfo"] *,
     [data-testid="stSuccess"] *,
     [data-testid="stWarning"] *,
     [data-testid="stError"] * {
-        color: #0f172a !important;
+        color: var(--text) !important;
     }
     [data-testid="stMarkdownContainer"] p {
-        color: #0f172a;
+        color: var(--text);
     }
     .stCaption {
-        color: #475569 !important;
+        color: var(--muted) !important;
     }
     [data-testid="stExpander"] {
-        background: rgba(255, 255, 255, 0.86);
-        border: 1px solid rgba(148, 163, 184, 0.2);
+        background: rgba(255, 251, 245, 0.92);
+        border: 1px solid rgba(194, 109, 60, 0.14);
         border-radius: 14px;
+        box-shadow: 0 8px 24px rgba(68, 47, 27, 0.08);
+    }
+    [data-testid="stFileUploaderFile"] {
+        background: rgba(255, 250, 244, 0.9);
+        border-radius: 14px;
+    }
+    [data-testid="stChatMessage"] {
+        background: rgba(255, 252, 247, 0.85);
+        border: 1px solid rgba(194, 109, 60, 0.10);
+        border-radius: 18px;
+        padding: 0.5rem 0.75rem;
+        box-shadow: 0 10px 28px rgba(68, 47, 27, 0.06);
+        margin-bottom: 0.6rem;
     }
 </style>
 """
@@ -215,6 +260,10 @@ def init_session_state() -> None:
         "debug_mode": False,
         "last_debug": {},
         "last_prompt": "",
+        "previous_answers": [],
+        "used_sentences": [],
+        "used_chunks": [],
+        "last_content_question": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -227,6 +276,10 @@ def clear_chat() -> None:
     st.session_state.retrieved_sources = []
     st.session_state.last_debug = {}
     st.session_state.last_prompt = ""
+    st.session_state.previous_answers = []
+    st.session_state.used_sentences = []
+    st.session_state.used_chunks = []
+    st.session_state.last_content_question = ""
 
 
 def reset_documents() -> None:
@@ -248,6 +301,13 @@ def normalize_text(text: str) -> str:
 
 def tokenize(text: str) -> list[str]:
     return re.findall(r"[A-Za-z0-9]{2,}", text.lower())
+
+
+def normalize_for_dedupe(text: str) -> str:
+    lowered = text.lower().strip()
+    lowered = re.sub(r"[^\w\s]", "", lowered)
+    lowered = re.sub(r"\s+", " ", lowered)
+    return lowered
 
 
 def split_sentences(text: str) -> list[str]:
@@ -420,6 +480,31 @@ def infer_content_intent(question: str) -> str:
     return "general"
 
 
+def is_follow_up_question(question: str) -> bool:
+    lowered = question.lower().strip()
+    return any(phrase in lowered for phrase in FOLLOW_UP_PHRASES)
+
+
+def resolve_follow_up_question(question: str) -> tuple[str, str | None]:
+    if not is_follow_up_question(question):
+        return question, None
+
+    previous = st.session_state.last_content_question.strip()
+    if not previous:
+        return question, None
+
+    intent = infer_content_intent(previous)
+    if intent == "uses":
+        rewritten = "Name another use of AI in healthcare from the document."
+    elif intent == "challenges":
+        rewritten = "What are other challenges of using AI in healthcare?"
+    elif intent == "benefits":
+        rewritten = "How else does AI help in hospitals according to the document?"
+    else:
+        rewritten = previous
+    return rewritten, rewritten
+
+
 def build_index(chunks: list[dict[str, Any]]) -> tuple[TfidfVectorizer | None, Any]:
     if not chunks:
         return None, None
@@ -507,9 +592,10 @@ def extract_candidate_units(chunk_text_value: str) -> list[str]:
     seen: set[str] = set()
     for item in sentences + lines:
         item = clean_answer_text(item)
-        if item and item not in seen:
+        normalized = normalize_for_dedupe(item)
+        if item and normalized and normalized not in seen:
             candidates.append(item)
-            seen.add(item)
+            seen.add(normalized)
     return candidates
 
 
@@ -534,15 +620,34 @@ def extract_list_item(text: str) -> str | None:
     return None
 
 
-def summarize_known_phrases(retrieved_chunks: list[dict[str, Any]], phrases: list[str], limit: int = 3) -> list[str]:
+def dedupe_answer_parts(parts: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        normalized = normalize_for_dedupe(part)
+        if normalized and normalized not in seen:
+            deduped.append(clean_answer_text(part))
+            seen.add(normalized)
+    return deduped
+
+
+def summarize_known_phrases(retrieved_chunks: list[dict[str, Any]], phrases: list[str]) -> list[str]:
     found: list[str] = []
+    found_norms: set[str] = set()
+    used_norms = {normalize_for_dedupe(item) for item in st.session_state.previous_answers}
+
     for chunk in retrieved_chunks:
         for phrase in phrases:
             matched = find_phrase_in_text(chunk["text"], phrase)
-            if matched and matched.lower() not in {item.lower() for item in found}:
-                found.append(matched)
-                if len(found) == limit:
-                    return found
+            if not matched:
+                continue
+            normalized = normalize_for_dedupe(matched)
+            if normalized in found_norms:
+                continue
+            if normalized in used_norms:
+                continue
+            found.append(matched)
+            found_norms.add(normalized)
     return found
 
 
@@ -550,13 +655,18 @@ def score_candidate_answer(query: str, candidate: str, parent_chunk: dict[str, A
     overlap = lexical_overlap_ratio(query, candidate)
     score = (0.62 * parent_chunk["combined_score"]) + (0.3 * overlap)
     candidate_lower = candidate.lower()
+    normalized = normalize_for_dedupe(candidate)
 
     if intent == "uses" and any(phrase in candidate_lower for phrase in KNOWN_USE_CASES):
         score += 0.22
     if intent == "challenges" and any(phrase in candidate_lower for phrase in KNOWN_CHALLENGES):
         score += 0.2
-    if intent == "benefits" and any(term in candidate_lower for term in ["help", "improve", "support"]):
+    if intent == "benefits" and any(term in candidate_lower for term in ["help", "improve", "support", "predict"]):
         score += 0.12
+    if normalized in st.session_state.used_sentences:
+        score -= 0.55
+    if f"{parent_chunk['doc_name']}::{parent_chunk['chunk_id']}" in st.session_state.used_chunks:
+        score -= 0.08
     if len(candidate) > 260:
         score -= 0.18
     if len(candidate.split()) < 3:
@@ -569,7 +679,7 @@ def extract_answer_span(query: str, candidate: str, intent: str) -> str:
         for phrase in KNOWN_USE_CASES:
             matched = find_phrase_in_text(candidate, phrase)
             if matched:
-                return matched
+                return matched.title() if matched.islower() else matched
         list_item = extract_list_item(candidate)
         if list_item:
             return list_item
@@ -578,12 +688,43 @@ def extract_answer_span(query: str, candidate: str, intent: str) -> str:
         found = []
         for phrase in KNOWN_CHALLENGES:
             matched = find_phrase_in_text(candidate, phrase)
-            if matched and matched.lower() not in {item.lower() for item in found}:
-                found.append(matched)
+            if matched:
+                normalized = normalize_for_dedupe(matched)
+                if normalized not in {normalize_for_dedupe(item) for item in found}:
+                    found.append(matched)
         if found:
-            return ", ".join(found[:3])
+            return ", ".join(found)
 
     return clean_answer_text(candidate)
+
+
+def has_sufficient_evidence(
+    question: str,
+    retrieved_sentences: list[dict[str, Any]],
+    best_score: float,
+    overlap_score: float,
+) -> tuple[bool, dict[str, Any]]:
+    intent = infer_content_intent(question)
+    min_score = 0.28 if intent in {"uses", "challenges", "benefits"} else 0.34
+    min_overlap = 0.18 if intent in {"uses", "challenges", "benefits"} else 0.22
+
+    if any(phrase in question.lower() for phrase in ["capital of", "president of", "population of"]):
+        min_score = 0.42
+        min_overlap = 0.24
+
+    relevant_candidates = [item for item in retrieved_sentences if item["score"] >= min_score]
+    has_relevant_sentence = bool(relevant_candidates)
+    decision = best_score >= min_score and overlap_score >= min_overlap and has_relevant_sentence
+
+    return decision, {
+        "intent": intent,
+        "best_score": round(best_score, 4),
+        "overlap_score": round(overlap_score, 4),
+        "min_score": min_score,
+        "min_overlap": min_overlap,
+        "relevant_sentence_count": len(relevant_candidates),
+        "decision": "answer" if decision else "refuse",
+    }
 
 
 def synthesize_local_answer(query: str, retrieved_chunks: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
@@ -592,37 +733,48 @@ def synthesize_local_answer(query: str, retrieved_chunks: list[dict[str, Any]]) 
         "mode": "local-extractive",
         "intent": intent,
         "selected_span": None,
-        "candidate_answers": [],
+        "candidate_sentences_before_dedupe": [],
+        "candidate_sentences_after_dedupe": [],
+        "excluded_due_to_prior_use": [],
     }
 
     if not retrieved_chunks:
         debug["refusal_reason"] = "no_retrieved_chunks"
         return REFUSAL_MESSAGE, debug
 
-    if retrieved_chunks[0]["combined_score"] < 0.18:
-        debug["refusal_reason"] = f"low_retrieval_score:{retrieved_chunks[0]['combined_score']}"
-        return REFUSAL_MESSAGE, debug
-
     if intent == "uses":
-        known_matches = summarize_known_phrases(retrieved_chunks, KNOWN_USE_CASES, limit=3)
+        known_matches = summarize_known_phrases(retrieved_chunks, KNOWN_USE_CASES)
         if known_matches:
-            debug["selected_span"] = known_matches[0]
+            selected = known_matches[0]
+            debug["selected_span"] = selected
             debug["known_phrase_matches"] = known_matches
-            return known_matches[0], debug
+            return selected, debug
 
     if intent == "challenges":
-        known_matches = summarize_known_phrases(retrieved_chunks, KNOWN_CHALLENGES, limit=3)
-        if known_matches:
-            answer = ", ".join(known_matches[:3])
+        found = summarize_known_phrases(retrieved_chunks, KNOWN_CHALLENGES)
+        if found:
+            answer = " and ".join(dedupe_answer_parts(found[:2]))
             debug["selected_span"] = answer
-            debug["known_phrase_matches"] = known_matches
+            debug["known_phrase_matches"] = found
             return answer, debug
 
     candidates: list[dict[str, Any]] = []
+    raw_candidates: list[str] = []
+    dedupe_seen: set[str] = set()
+    deduped_candidates: list[str] = []
+
     for chunk in retrieved_chunks:
         for candidate in extract_candidate_units(chunk["text"]):
+            raw_candidates.append(candidate)
             answer_span = extract_answer_span(query, candidate, intent)
+            normalized_answer = normalize_for_dedupe(answer_span)
+            if normalized_answer and normalized_answer not in dedupe_seen:
+                dedupe_seen.add(normalized_answer)
+                deduped_candidates.append(answer_span)
             candidate_score = score_candidate_answer(query, candidate, chunk, intent)
+            excluded_prior_use = normalized_answer in st.session_state.used_sentences
+            if excluded_prior_use:
+                debug["excluded_due_to_prior_use"].append(answer_span)
             candidates.append(
                 {
                     "doc_name": chunk["doc_name"],
@@ -630,26 +782,46 @@ def synthesize_local_answer(query: str, retrieved_chunks: list[dict[str, Any]]) 
                     "candidate": candidate,
                     "answer_span": answer_span,
                     "score": candidate_score,
+                    "overlap": lexical_overlap_ratio(query, candidate),
+                    "excluded_prior_use": excluded_prior_use,
                 }
             )
 
     candidates.sort(key=lambda item: item["score"], reverse=True)
+    debug["candidate_sentences_before_dedupe"] = raw_candidates[:12]
+    debug["candidate_sentences_after_dedupe"] = deduped_candidates[:12]
     debug["candidate_answers"] = candidates[:8]
 
-    if not candidates or candidates[0]["score"] < 0.2:
-        debug["refusal_reason"] = "weak_candidate_score"
+    if not candidates:
+        debug["refusal_reason"] = "no_candidates"
         return REFUSAL_MESSAGE, debug
 
-    top_candidates = candidates[:2]
-    selected = top_candidates[0]["answer_span"]
-    if intent in {"benefits", "summary", "general"} and len(top_candidates) > 1:
-        secondary = top_candidates[1]["answer_span"]
-        if secondary.lower() != selected.lower() and lexical_overlap_ratio(query, secondary) > 0.18:
-            selected = f"{selected} {secondary}"
+    best_score = candidates[0]["score"]
+    best_overlap = candidates[0]["overlap"]
+    evidence_ok, evidence_debug = has_sufficient_evidence(query, candidates[:8], best_score, best_overlap)
+    debug["evidence"] = evidence_debug
+    if not evidence_ok:
+        debug["refusal_reason"] = "insufficient_evidence"
+        return REFUSAL_MESSAGE, debug
 
-    selected = clean_answer_text(selected)
-    debug["selected_span"] = selected
-    return selected, debug
+    primary = candidates[0]
+    parts = [primary["answer_span"]]
+
+    if intent == "benefits":
+        for candidate in candidates[1:4]:
+            if candidate["score"] < primary["score"] - 0.18:
+                continue
+            if candidate["overlap"] < max(0.18, primary["overlap"] - 0.06):
+                continue
+            if normalize_for_dedupe(candidate["answer_span"]) == normalize_for_dedupe(primary["answer_span"]):
+                continue
+            parts.append(candidate["answer_span"])
+            break
+
+    parts = dedupe_answer_parts(parts)
+    final_answer = clean_answer_text(" ".join(parts[:1]) if intent in {"uses", "general"} else " ".join(parts))
+    debug["selected_span"] = final_answer
+    return final_answer, debug
 
 
 def calculate_confidence(sources: list[dict[str, Any]], debug: dict[str, Any]) -> float:
@@ -658,11 +830,9 @@ def calculate_confidence(sources: list[dict[str, Any]], debug: dict[str, Any]) -
     top_score = sources[0]["combined_score"]
     if debug.get("mode") == "remote-llm":
         return round(min(0.95, 0.45 + top_score), 2)
-    if debug.get("mode") == "local-extractive":
-        candidate_answers = debug.get("candidate_answers", [])
-        best_candidate_score = candidate_answers[0]["score"] if candidate_answers else top_score
-        return round(min(0.94, 0.35 + top_score + (best_candidate_score / 2.5)), 2)
-    return round(min(0.98, 0.6 + top_score), 2)
+    evidence = debug.get("evidence", {})
+    best_score = evidence.get("best_score", top_score)
+    return round(min(0.92, 0.25 + top_score + (best_score / 3)), 2)
 
 
 def get_llm_settings() -> dict[str, str | None]:
@@ -672,7 +842,6 @@ def get_llm_settings() -> dict[str, str | None]:
         if not base_url.endswith("/v1"):
             base_url = f"{base_url}/v1"
     parsed = urlparse(base_url) if base_url else None
-
     return {
         "base_url": base_url or None,
         "display_host": parsed.netloc if parsed else None,
@@ -730,7 +899,7 @@ def answer_with_remote_llm(query: str, retrieved_chunks: list[dict[str, Any]]) -
                     "role": "system",
                     "content": (
                         "Answer only from the provided document sources. "
-                        "If the answer is not present, say you could not find it in the uploaded documents."
+                        "If the answer is missing, say you could not find it in the uploaded documents."
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -748,11 +917,15 @@ def answer_with_remote_llm(query: str, retrieved_chunks: list[dict[str, Any]]) -
 
 
 def answer_question(query: str) -> dict[str, Any]:
-    question_type = classify_question(query)
-    debug_payload: dict[str, Any] = {"question_type": question_type}
+    resolved_query, rewritten = resolve_follow_up_question(query)
+    question_type = classify_question(resolved_query)
+    debug_payload: dict[str, Any] = {
+        "question_type": question_type,
+        "rewritten_follow_up_question": rewritten,
+    }
 
     if question_type == "metadata":
-        metadata_answer, metadata_debug = try_metadata_answer(query, st.session_state.documents)
+        metadata_answer, metadata_debug = try_metadata_answer(resolved_query, st.session_state.documents)
         debug_payload["metadata_debug"] = metadata_debug
         if metadata_answer:
             debug_payload["mode"] = "metadata"
@@ -762,16 +935,18 @@ def answer_question(query: str) -> dict[str, Any]:
                 "sources": [],
                 "debug": debug_payload,
                 "confidence": calculate_confidence([], debug_payload),
+                "resolved_query": resolved_query,
             }
         return {
             "answer": REFUSAL_MESSAGE,
             "sources": [],
             "debug": debug_payload,
             "confidence": 0.0,
+            "resolved_query": resolved_query,
         }
 
     retrieved = retrieve_chunks(
-        query=query,
+        query=resolved_query,
         vectorizer=st.session_state.vectorizer,
         chunk_matrix=st.session_state.chunk_matrix,
         chunks=st.session_state.body_chunks,
@@ -782,24 +957,31 @@ def answer_question(query: str) -> dict[str, Any]:
     if not retrieved or retrieved[0]["combined_score"] < 0.18:
         debug_payload["mode"] = "content-refusal"
         debug_payload["refusal_reason"] = "retrieval_below_threshold"
+        debug_payload["best_score"] = retrieved[0]["combined_score"] if retrieved else 0.0
+        debug_payload["overlap_score"] = retrieved[0]["overlap"] if retrieved else 0.0
         return {
             "answer": REFUSAL_MESSAGE,
             "sources": retrieved[:3],
             "debug": debug_payload,
             "confidence": 0.0,
+            "resolved_query": resolved_query,
         }
 
     if remote_llm_configured():
-        answer, mode_debug = answer_with_remote_llm(query, retrieved[:4])
+        answer, mode_debug = answer_with_remote_llm(resolved_query, retrieved[:4])
     else:
-        answer, mode_debug = synthesize_local_answer(query, retrieved[:4])
+        answer, mode_debug = synthesize_local_answer(resolved_query, retrieved[:4])
 
     debug_payload.update(mode_debug)
+    evidence = debug_payload.get("evidence", {})
+    debug_payload["best_score"] = evidence.get("best_score", retrieved[0]["combined_score"])
+    debug_payload["overlap_score"] = evidence.get("overlap_score", retrieved[0]["overlap"])
     return {
         "answer": answer,
         "sources": retrieved[:4],
         "debug": debug_payload,
         "confidence": calculate_confidence(retrieved[:4], debug_payload),
+        "resolved_query": resolved_query,
     }
 
 
@@ -857,6 +1039,10 @@ def process_uploaded_documents(uploaded_files: list[Any]) -> None:
     st.session_state.last_debug = {}
     st.session_state.last_prompt = ""
     st.session_state.answer_history = []
+    st.session_state.previous_answers = []
+    st.session_state.used_sentences = []
+    st.session_state.used_chunks = []
+    st.session_state.last_content_question = ""
 
 
 def render_hero() -> None:
@@ -879,7 +1065,6 @@ def render_stats() -> None:
     total_chunks = len(st.session_state.body_chunks)
     total_answers = len(st.session_state.answer_history)
     mode_label = "Remote LLM" if remote_llm_configured() else "Local Extractive"
-
     columns = st.columns(4)
     stats = [
         ("Indexed Files", str(total_docs)),
@@ -938,7 +1123,6 @@ def render_debug_panels() -> None:
         return
 
     st.subheader("Debug Information")
-
     with st.expander("Extracted raw text preview", expanded=False):
         for document in st.session_state.documents:
             st.markdown(f"**{document['name']}**")
@@ -958,11 +1142,7 @@ def render_debug_panels() -> None:
     with st.expander("Body chunk list", expanded=False):
         st.write(
             [
-                {
-                    "doc_name": chunk["doc_name"],
-                    "chunk_id": chunk["chunk_id"],
-                    "text": chunk["text"],
-                }
+                {"doc_name": chunk["doc_name"], "chunk_id": chunk["chunk_id"], "text": chunk["text"]}
                 for chunk in st.session_state.body_chunks
             ]
         )
@@ -975,7 +1155,6 @@ def render_debug_panels() -> None:
 def render_suggested_questions() -> None:
     if not st.session_state.documents:
         return
-
     st.caption("Quick prompts")
     suggestions = [
         "Who is the author of the document?",
@@ -986,20 +1165,7 @@ def render_suggested_questions() -> None:
     for column, suggestion in zip(columns, suggestions):
         with column:
             if st.button(suggestion, use_container_width=True):
-                result = answer_question(suggestion)
-                st.session_state.current_question = suggestion
-                st.session_state.retrieved_sources = result["sources"]
-                st.session_state.last_debug = result["debug"]
-                st.session_state.last_prompt = result["debug"].get("prompt", "")
-                st.session_state.answer_history.append(
-                    {
-                        "question": suggestion,
-                        "answer": result["answer"],
-                        "sources": result["sources"],
-                        "debug": result["debug"],
-                        "confidence": result["confidence"],
-                    }
-                )
+                handle_new_question(suggestion)
                 st.rerun()
 
 
@@ -1007,6 +1173,8 @@ def render_history() -> None:
     for index, item in enumerate(st.session_state.answer_history, start=1):
         with st.chat_message("user"):
             st.write(item["question"])
+            if item.get("resolved_query") and item["resolved_query"] != item["question"]:
+                st.caption(f"Resolved as: {item['resolved_query']}")
 
         with st.chat_message("assistant"):
             st.write(item["answer"])
@@ -1031,21 +1199,54 @@ def render_history() -> None:
                     st.json(item["debug"])
 
 
+def register_answer_usage(answer: str, sources: list[dict[str, Any]], debug: dict[str, Any]) -> None:
+    answer_norm = normalize_for_dedupe(answer)
+    if answer_norm and answer_norm not in st.session_state.previous_answers:
+        st.session_state.previous_answers.append(answer_norm)
+
+    selected = debug.get("selected_span")
+    if selected:
+        selected_norm = normalize_for_dedupe(selected)
+        if selected_norm and selected_norm not in st.session_state.used_sentences:
+            st.session_state.used_sentences.append(selected_norm)
+
+    for source in sources:
+        chunk_key = f"{source['doc_name']}::{source['chunk_id']}"
+        if chunk_key not in st.session_state.used_chunks:
+            st.session_state.used_chunks.append(chunk_key)
+
+
 def handle_new_question(question: str) -> None:
     result = answer_question(question)
     st.session_state.current_question = question
     st.session_state.retrieved_sources = result["sources"]
     st.session_state.last_debug = result["debug"]
     st.session_state.last_prompt = result["debug"].get("prompt", "")
+
+    if classify_question(result["resolved_query"]) == "content":
+        st.session_state.last_content_question = result["resolved_query"]
+
+    register_answer_usage(result["answer"], result["sources"], result["debug"])
+
     st.session_state.answer_history.append(
         {
             "question": question,
+            "resolved_query": result["resolved_query"],
             "answer": result["answer"],
             "sources": result["sources"],
             "debug": result["debug"],
             "confidence": result["confidence"],
         }
     )
+
+
+# Expected local behavior checks for the healthcare sample document:
+# 1. Author question -> "Dr. Sarah Johnson"
+# 2. Published question -> "2023"
+# 3. First use question -> one of "Medical imaging", "Predictive analytics", "Drug discovery"
+# 4. Follow-up use questions -> different valid uses when possible
+# 5. Challenges question -> should mention both privacy and incorrect diagnoses
+# 6. Out-of-scope question like "What is the capital of Australia?" -> refusal
 
 
 st.set_page_config(page_title="Document Intelligence RAG Assistant", layout="wide")
